@@ -11,7 +11,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
+
     <style>
         body {
             background-color: #f1f5f9; /* slate-100 */
@@ -51,7 +51,7 @@
         // --- CONFIGURAÇÃO E DADOS ---
 
         const TARGET_WORDS = [
-        "sapato", "casa", "pente", "chave", "avião", 
+        "sapato", "casa", "pente", "chave", "avião",
         "balde", "tartaruga", "livro", "colher", "árvore",
         "arvore", "aviao" // Variações sem acento
         ];
@@ -74,16 +74,23 @@
         LEARNING: 'learning',       // Aprendizado (30s exp) -> Evocação
         FLUENCY: 'fluency',         // Fluência Verbal (Animais 1min)
         CLOCK: 'clock',             // Desenho do Relógio
-        DELAY_WAIT: 'delay_wait',   // (Simulado, pois o relógio + fluência ocupam o tempo)
         DELAYED: 'delayed',         // Memória Tardia
         RECOGNITION: 'recognition', // Reconhecimento
         REPORT: 'report'
         };
 
+        const SHULMAN_CRITERIA = [
+            { score: 5, label: "Relógio perfeito" },
+            { score: 4, label: "Mínimo erro visuoespacial" },
+            { score: 3, label: "Horário 11:10 inadequado, sem grande alteração visuoespacial" },
+            { score: 2, label: "Erro visuoespacial moderado, impossibilitando indicação dos ponteiros" },
+            { score: 1, label: "Grande desorganização visuoespacial" },
+            { score: 0, label: "Incapacidade de representar qualquer imagem de relógio" }
+        ];
+
         // --- COMPONENTES UTILITÁRIOS ---
 
-        // Variável de módulo para evitar repetição de fala quando componentes
-        // definidos dentro de App são remontados a cada re-render do estado
+        // Variável de módulo para evitar repetição de fala quando componentes remontam
         let lastSpokenText = '';
 
         const SpeechSynthesizer = ({ text, autoPlay = true }) => {
@@ -101,179 +108,11 @@
         return null;
         };
 
-        // --- COMPONENTE PRINCIPAL ---
+        // --- COMPONENTES DE FASE (fora do App para referência estável) ---
 
-        function App() {
-        // Iniciamos diretamente na fase de boas-vindas
-        const [currentPhase, setCurrentPhase] = useState(PHASES.WELCOME);
-        
-        // Imagens apontando para o diretório local (mesma pasta do index.html)
-        const [images, setImages] = useState({
-            stimuli: './bbrc_estimulos.jpg',
-            recognition: './bbrc_reconhecimento.jpg'
-        });
-
-        const [transcript, setTranscript] = useState("");
-        const [isListening, setIsListening] = useState(false);
-        const [timer, setTimer] = useState(0);
-        const [scores, setScores] = useState({
-            naming: 0,
-            incidental: 0,
-            immediate: 0,
-            learning: 0,
-            fluency: 0,
-            clock: 0,
-            delayed: 0,
-            recognition: 0
-        });
-        // Nível de escolaridade para pontos de corte da fluência verbal
-        // 0 = analfabeto, 1 = 1-7 anos, 2 = 8+ anos
-        const [educationLevel, setEducationLevel] = useState(2);
-        
-        // Refs para Speech Recognition
-        const recognitionRef = useRef(null);
-        const isListeningRef = useRef(false);
-        const canvasRef = useRef(null);
-
-        // --- LÓGICA DE RECONHECIMENTO DE VOZ ---
-        
-        useEffect(() => {
-            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognitionRef.current = new SpeechRecognition();
-            recognitionRef.current.continuous = true;
-            recognitionRef.current.interimResults = true;
-            recognitionRef.current.lang = 'pt-BR';
-
-            recognitionRef.current.onresult = (event) => {
-                let finalTranscript = '';
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                if (event.results[i].isFinal) {
-                    finalTranscript += event.results[i][0].transcript + ' ';
-                }
-                }
-                if (finalTranscript) {
-                setTranscript(prev => (prev + " " + finalTranscript).trim());
-                }
-            };
-
-            recognitionRef.current.onerror = (event) => {
-                console.error("Erro no reconhecimento de voz:", event.error);
-                setIsListening(false);
-            };
-            
-            recognitionRef.current.onend = () => {
-                // Reiniciar se deveria estar ouvindo (para contornar paradas automáticas)
-                if (isListeningRef.current) {
-                    try { recognitionRef.current.start(); } catch(e) {}
-                }
-            };
-            } else {
-            alert("Seu navegador não suporta reconhecimento de voz. Use Chrome ou Edge.");
-            }
-        }, []);
-
-        const toggleListening = useCallback((shouldListen) => {
-            if (!recognitionRef.current) return;
-
-            if (shouldListen) {
-            try {
-                recognitionRef.current.start();
-                setIsListening(true);
-                isListeningRef.current = true;
-            } catch (e) {
-                // Já iniciado
-            }
-            } else {
-            recognitionRef.current.stop();
-            setIsListening(false);
-            isListeningRef.current = false;
-            }
-        }, []);
-
-        // --- LÓGICA DE PONTUAÇÃO AUTOMÁTICA (NLP SIMPLIFICADA) ---
-
-        const calculateScore = (text, type) => {
-            const normalizedText = text.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-            const words = normalizedText.split(/\s+/);
-            
-            if (type === 'fluency') {
-            // Conta animais únicos
-            const uniqueAnimals = new Set();
-            words.forEach(w => {
-                if (ANIMAL_KEYWORDS.includes(w)) uniqueAnimals.add(w);
-            });
-            return uniqueAnimals.size;
-            } else {
-            // Conta objetos alvo únicos (para memória)
-            const foundTargets = new Set();
-            words.forEach(w => {
-                if (TARGET_WORDS.includes(w)) {
-                // Normalizar 'arvore' e 'aviao'
-                let cleanWord = w;
-                if(w === 'arvore') cleanWord = 'árvore';
-                if(w === 'aviao') cleanWord = 'avião';
-                foundTargets.add(cleanWord);
-                }
-            });
-            return foundTargets.size;
-            }
-        };
-
-        // --- NAVEGAÇÃO ENTRE FASES ---
-
-        const nextPhase = () => {
-            toggleListening(false);
-            setTranscript("");
-            lastSpokenText = ''; // Permitir que a nova fase fale sua instrução
-            
-            switch (currentPhase) {
-            case PHASES.WELCOME: setCurrentPhase(PHASES.NAMING); break;
-            case PHASES.NAMING: 
-                setScores(s => ({...s, naming: calculateScore(transcript, 'memory')}));
-                setCurrentPhase(PHASES.INCIDENTAL); 
-                break;
-            case PHASES.INCIDENTAL:
-                setScores(s => ({...s, incidental: calculateScore(transcript, 'memory')}));
-                setCurrentPhase(PHASES.IMMEDIATE);
-                break;
-            case PHASES.IMMEDIATE:
-                setScores(s => ({...s, immediate: calculateScore(transcript, 'memory')}));
-                setCurrentPhase(PHASES.LEARNING);
-                break;
-            case PHASES.LEARNING:
-                setScores(s => ({...s, learning: calculateScore(transcript, 'memory')}));
-                setCurrentPhase(PHASES.FLUENCY);
-                break;
-            case PHASES.FLUENCY:
-                setScores(s => ({...s, fluency: calculateScore(transcript, 'fluency')}));
-                setCurrentPhase(PHASES.CLOCK);
-                break;
-            case PHASES.CLOCK:
-                // Score do relógio é calculado no componente do relógio antes de sair
-                setCurrentPhase(PHASES.DELAYED);
-                break;
-            case PHASES.DELAYED:
-                setScores(s => ({...s, delayed: calculateScore(transcript, 'memory')}));
-                setCurrentPhase(PHASES.RECOGNITION);
-                break;
-            case PHASES.RECOGNITION:
-                // Score de reconhecimento calculado manualmente ou por voz
-                setScores(s => ({...s, recognition: calculateScore(transcript, 'memory')}));
-                setCurrentPhase(PHASES.REPORT);
-                break;
-            default: break;
-            }
-        };
-
-        // --- RENDERIZADORES DE FASE ---
-        // (renderSetup removido pois as imagens são carregadas automaticamente)
-
-        // Componente Reutilizável de Teste de Memória
-        const MemoryPhase = ({ title, instruction, showImage, duration = 0, autoAdvance = false, hideInput = false, allowInputWithImage = false }) => {
+        const MemoryPhase = ({ title, instruction, showImage, duration = 0, autoAdvance = false, hideInput = false, allowInputWithImage = false, stimuliImage, isListening, transcript, toggleListening, onNextPhase }) => {
             const [timeLeft, setTimeLeft] = useState(duration);
             const [showStimulus, setShowStimulus] = useState(showImage);
-            // Controla se o input de voz deve ser exibido
             const canShowInput = !showStimulus || allowInputWithImage;
 
             useEffect(() => {
@@ -295,10 +134,9 @@
             } else if (!showImage) {
                 toggleListening(true);
             } else if (allowInputWithImage) {
-                // Nomeação: imagem visível + microfone ativo
                 toggleListening(true);
             }
-            }, [duration, showStimulus, allowInputWithImage]);
+            }, [duration, showStimulus, allowInputWithImage, showImage, toggleListening]);
 
             return (
             <div className="flex flex-col items-center space-y-6 text-center">
@@ -308,7 +146,7 @@
                 {showStimulus ? (
                 <div className="relative">
                     <img
-                    src={images.stimuli}
+                    src={stimuliImage}
                     onError={(e) => {
                         e.target.onerror = null;
                         e.target.parentElement.innerHTML = `<div class="p-8 border-2 border-red-300 bg-red-50 text-red-800 rounded">Erro: Imagem "bbrc_estimulos.jpg" não encontrada na pasta do site.</div>`;
@@ -345,7 +183,7 @@
                 )}
 
                 {canShowInput && (
-                    <button onClick={nextPhase} className="px-8 py-3 bg-green-600 text-white rounded-lg font-bold text-lg hover:bg-green-700 shadow-lg flex items-center gap-2">
+                    <button onClick={onNextPhase} className="px-8 py-3 bg-green-600 text-white rounded-lg font-bold text-lg hover:bg-green-700 shadow-lg flex items-center gap-2">
                     Próxima Etapa <Play size={20} fill="white" />
                     </button>
                 )}
@@ -353,7 +191,7 @@
             );
         };
 
-        const FluencyPhase = () => {
+        const FluencyPhase = ({ transcript, toggleListening, onNextPhase }) => {
             const [timeLeft, setTimeLeft] = useState(60);
             const [started, setStarted] = useState(false);
 
@@ -376,7 +214,7 @@
             <div className="flex flex-col items-center space-y-6 text-center">
                 <SpeechSynthesizer text="Diga o maior número possível de nomes de animais. Comece agora." autoPlay={started} />
                 <h2 className="text-2xl font-bold text-gray-800">Fluência Verbal</h2>
-                
+
                 {!started ? (
                 <div className="text-center space-y-4">
                     <p className="text-lg">Você terá 1 minuto para dizer nomes de animais.</p>
@@ -392,7 +230,7 @@
                     <p className="text-lg">{transcript}</p>
                     </div>
                     {timeLeft === 0 && (
-                    <button onClick={nextPhase} className="px-8 py-3 bg-green-600 text-white rounded-lg font-bold">
+                    <button onClick={onNextPhase} className="px-8 py-3 bg-green-600 text-white rounded-lg font-bold">
                         Continuar
                     </button>
                     )}
@@ -402,16 +240,7 @@
             );
         };
 
-        const SHULMAN_CRITERIA = [
-            { score: 5, label: "Relógio perfeito" },
-            { score: 4, label: "Mínimo erro visuoespacial" },
-            { score: 3, label: "Horário 11:10 inadequado, sem grande alteração visuoespacial" },
-            { score: 2, label: "Erro visuoespacial moderado, impossibilitando indicação dos ponteiros" },
-            { score: 1, label: "Grande desorganização visuoespacial" },
-            { score: 0, label: "Incapacidade de representar qualquer imagem de relógio" }
-        ];
-
-        const ClockPhase = () => {
+        const ClockPhase = ({ onSetClockScore, onNextPhase }) => {
             const canvasRef = useRef(null);
             const [isDrawing, setIsDrawing] = useState(false);
             const [ctx, setCtx] = useState(null);
@@ -468,8 +297,8 @@
 
             const confirmScore = () => {
             if (selectedScore === null) return;
-            setScores(s => ({...s, clock: selectedScore}));
-            nextPhase();
+            onSetClockScore(selectedScore);
+            onNextPhase();
             };
 
             return (
@@ -533,10 +362,10 @@
             );
         };
 
-        const RecognitionPhase = () => {
+        const RecognitionPhase = ({ recognitionImage, isListening, transcript, toggleListening, onNextPhase }) => {
             useEffect(() => {
                 toggleListening(true);
-            }, []);
+            }, [toggleListening]);
 
             return (
             <div className="flex flex-col items-center space-y-6 text-center">
@@ -544,7 +373,7 @@
                 <h2 className="text-2xl font-bold text-gray-800">Reconhecimento</h2>
 
                 <img
-                    src={images.recognition}
+                    src={recognitionImage}
                     onError={(e) => {
                     e.target.onerror = null;
                     e.target.parentElement.innerHTML = `<div class="p-8 border-2 border-red-300 bg-red-50 text-red-800 rounded">Erro: Imagem "bbrc_reconhecimento.jpg" não encontrada na pasta do site.</div>`;
@@ -563,16 +392,15 @@
                     </div>
                 </div>
 
-                <button onClick={nextPhase} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold">
+                <button onClick={onNextPhase} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold">
                     Ver Resultados
                 </button>
             </div>
             );
         };
 
-        const ReportPhase = () => {
-            // Cálculo final e feedback
-            const getFeedback = (score, cutoff, label) => {
+        const ReportPhase = ({ scores, educationLevel, setEducationLevel }) => {
+            const getFeedback = (score, cutoff) => {
             if (score <= cutoff) return <span className="text-red-600 font-bold flex items-center gap-1"><AlertCircle size={16}/> Atenção</span>;
             return <span className="text-green-600 font-bold flex items-center gap-1"><CheckCircle size={16}/> Normal</span>;
             };
@@ -590,7 +418,7 @@
                     <h3 className="font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2"><Brain size={18}/> Perfil de Memória</h3>
                     <ul className="space-y-3 text-sm">
                     <li className="flex justify-between items-center">
-                        <span>Nomeação:</span> 
+                        <span>Nomeação:</span>
                         <span className="font-mono font-bold">{scores.naming}/10</span>
                     </li>
                     <li className="flex justify-between items-center">
@@ -683,6 +511,174 @@
             );
         };
 
+        // --- COMPONENTE PRINCIPAL ---
+
+        function App() {
+        const [currentPhase, setCurrentPhase] = useState(PHASES.WELCOME);
+
+        const [images] = useState({
+            stimuli: './bbrc_estimulos.jpg',
+            recognition: './bbrc_reconhecimento.jpg'
+        });
+
+        const [transcript, setTranscript] = useState("");
+        const [isListening, setIsListening] = useState(false);
+        const [scores, setScores] = useState({
+            naming: 0,
+            incidental: 0,
+            immediate: 0,
+            learning: 0,
+            fluency: 0,
+            clock: 0,
+            delayed: 0,
+            recognition: 0
+        });
+        const [educationLevel, setEducationLevel] = useState(2);
+
+        const recognitionRef = useRef(null);
+        const isListeningRef = useRef(false);
+
+        // --- LÓGICA DE RECONHECIMENTO DE VOZ ---
+
+        useEffect(() => {
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognitionRef.current = new SpeechRecognition();
+            recognitionRef.current.continuous = true;
+            recognitionRef.current.interimResults = true;
+            recognitionRef.current.lang = 'pt-BR';
+
+            recognitionRef.current.onresult = (event) => {
+                let finalTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    finalTranscript += event.results[i][0].transcript + ' ';
+                }
+                }
+                if (finalTranscript) {
+                setTranscript(prev => (prev + " " + finalTranscript).trim());
+                }
+            };
+
+            recognitionRef.current.onerror = (event) => {
+                console.error("Erro no reconhecimento de voz:", event.error);
+                setIsListening(false);
+                isListeningRef.current = false;
+            };
+
+            recognitionRef.current.onend = () => {
+                // Reiniciar se deveria estar ouvindo (para contornar paradas automáticas)
+                if (isListeningRef.current) {
+                    try { recognitionRef.current.start(); } catch(e) {}
+                }
+            };
+            } else {
+            alert("Seu navegador não suporta reconhecimento de voz. Use Chrome ou Edge.");
+            }
+        }, []);
+
+        const toggleListening = useCallback((shouldListen) => {
+            if (!recognitionRef.current) return;
+
+            isListeningRef.current = shouldListen;
+            setIsListening(shouldListen);
+
+            if (shouldListen) {
+            // Atraso para garantir que um stop() pendente tenha finalizado
+            setTimeout(() => {
+                if (isListeningRef.current) {
+                try { recognitionRef.current.start(); } catch (e) {}
+                }
+            }, 150);
+            } else {
+            try { recognitionRef.current.stop(); } catch (e) {}
+            }
+        }, []);
+
+        // --- LÓGICA DE PONTUAÇÃO AUTOMÁTICA (NLP SIMPLIFICADA) ---
+
+        const calculateScore = (text, type) => {
+            const normalizedText = text.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+            const words = normalizedText.split(/\s+/);
+
+            if (type === 'fluency') {
+            const uniqueAnimals = new Set();
+            words.forEach(w => {
+                if (ANIMAL_KEYWORDS.includes(w)) uniqueAnimals.add(w);
+            });
+            return uniqueAnimals.size;
+            } else {
+            const foundTargets = new Set();
+            words.forEach(w => {
+                if (TARGET_WORDS.includes(w)) {
+                let cleanWord = w;
+                if(w === 'arvore') cleanWord = 'árvore';
+                if(w === 'aviao') cleanWord = 'avião';
+                foundTargets.add(cleanWord);
+                }
+            });
+            return foundTargets.size;
+            }
+        };
+
+        // --- NAVEGAÇÃO ENTRE FASES ---
+
+        const nextPhase = useCallback(() => {
+            toggleListening(false);
+            lastSpokenText = '';
+
+            switch (currentPhase) {
+            case PHASES.WELCOME:
+                setTranscript("");
+                setCurrentPhase(PHASES.NAMING);
+                break;
+            case PHASES.NAMING:
+                setScores(s => ({...s, naming: calculateScore(transcript, 'memory')}));
+                setTranscript("");
+                setCurrentPhase(PHASES.INCIDENTAL);
+                break;
+            case PHASES.INCIDENTAL:
+                setScores(s => ({...s, incidental: calculateScore(transcript, 'memory')}));
+                setTranscript("");
+                setCurrentPhase(PHASES.IMMEDIATE);
+                break;
+            case PHASES.IMMEDIATE:
+                setScores(s => ({...s, immediate: calculateScore(transcript, 'memory')}));
+                setTranscript("");
+                setCurrentPhase(PHASES.LEARNING);
+                break;
+            case PHASES.LEARNING:
+                setScores(s => ({...s, learning: calculateScore(transcript, 'memory')}));
+                setTranscript("");
+                setCurrentPhase(PHASES.FLUENCY);
+                break;
+            case PHASES.FLUENCY:
+                setScores(s => ({...s, fluency: calculateScore(transcript, 'fluency')}));
+                setTranscript("");
+                setCurrentPhase(PHASES.CLOCK);
+                break;
+            case PHASES.CLOCK:
+                setTranscript("");
+                setCurrentPhase(PHASES.DELAYED);
+                break;
+            case PHASES.DELAYED:
+                setScores(s => ({...s, delayed: calculateScore(transcript, 'memory')}));
+                setTranscript("");
+                setCurrentPhase(PHASES.RECOGNITION);
+                break;
+            case PHASES.RECOGNITION:
+                setScores(s => ({...s, recognition: calculateScore(transcript, 'memory')}));
+                setTranscript("");
+                setCurrentPhase(PHASES.REPORT);
+                break;
+            default: break;
+            }
+        }, [currentPhase, transcript, toggleListening]);
+
+        const setClockScore = useCallback((score) => {
+            setScores(s => ({...s, clock: score}));
+        }, []);
+
         // --- RENDERIZAÇÃO CENTRAL ---
 
         return (
@@ -695,8 +691,7 @@
             </header>
 
             <main className="max-w-4xl mx-auto">
-                {/* SETUP PHASE Removido - vai direto para Welcome */}
-                
+
                 {currentPhase === PHASES.WELCOME && (
                 <div className="text-center bg-white p-8 rounded-xl shadow-lg">
                     <SpeechSynthesizer text="Bem vindo. Eu vou mostrar algumas figuras e fazer algumas perguntas. Por favor, certifique-se de que está em um local silencioso." />
@@ -713,50 +708,100 @@
                     showImage={true}
                     duration={0}
                     allowInputWithImage={true}
+                    stimuliImage={images.stimuli}
+                    isListening={isListening}
+                    transcript={transcript}
+                    toggleListening={toggleListening}
+                    onNextPhase={nextPhase}
                 />
                 )}
 
                 {currentPhase === PHASES.INCIDENTAL && (
-                <MemoryPhase 
-                    title="Memória Incidental" 
-                    instruction="Agora, sem olhar, quais figuras eu acabei de lhe mostrar?" 
-                    showImage={false} 
+                <MemoryPhase
+                    title="Memória Incidental"
+                    instruction="Agora, sem olhar, quais figuras eu acabei de lhe mostrar?"
+                    showImage={false}
+                    stimuliImage={images.stimuli}
+                    isListening={isListening}
+                    transcript={transcript}
+                    toggleListening={toggleListening}
+                    onNextPhase={nextPhase}
                 />
                 )}
 
                 {currentPhase === PHASES.IMMEDIATE && (
-                <MemoryPhase 
-                    title="Memória Imediata" 
-                    instruction="Olhe estas figuras novamente e tente decorá-las. Você tem 30 segundos." 
-                    showImage={true} 
+                <MemoryPhase
+                    title="Memória Imediata"
+                    instruction="Olhe estas figuras novamente e tente decorá-las. Você tem 30 segundos."
+                    showImage={true}
                     duration={30}
+                    stimuliImage={images.stimuli}
+                    isListening={isListening}
+                    transcript={transcript}
+                    toggleListening={toggleListening}
+                    onNextPhase={nextPhase}
                 />
                 )}
 
                 {currentPhase === PHASES.LEARNING && (
-                <MemoryPhase 
-                    title="Aprendizado" 
-                    instruction="Vou mostrar mais uma vez por 30 segundos. Tente guardar todas na memória." 
-                    showImage={true} 
+                <MemoryPhase
+                    title="Aprendizado"
+                    instruction="Vou mostrar mais uma vez por 30 segundos. Tente guardar todas na memória."
+                    showImage={true}
                     duration={30}
+                    stimuliImage={images.stimuli}
+                    isListening={isListening}
+                    transcript={transcript}
+                    toggleListening={toggleListening}
+                    onNextPhase={nextPhase}
                 />
                 )}
 
-                {currentPhase === PHASES.FLUENCY && <FluencyPhase />}
-                
-                {currentPhase === PHASES.CLOCK && <ClockPhase />}
-                
+                {currentPhase === PHASES.FLUENCY && (
+                <FluencyPhase
+                    transcript={transcript}
+                    toggleListening={toggleListening}
+                    onNextPhase={nextPhase}
+                />
+                )}
+
+                {currentPhase === PHASES.CLOCK && (
+                <ClockPhase
+                    onSetClockScore={setClockScore}
+                    onNextPhase={nextPhase}
+                />
+                )}
+
                 {currentPhase === PHASES.DELAYED && (
-                <MemoryPhase 
-                    title="Memória Tardia" 
-                    instruction="Passou algum tempo. Que figuras eu mostrei para você no começo?" 
-                    showImage={false} 
+                <MemoryPhase
+                    title="Memória Tardia"
+                    instruction="Passou algum tempo. Que figuras eu mostrei para você no começo?"
+                    showImage={false}
+                    stimuliImage={images.stimuli}
+                    isListening={isListening}
+                    transcript={transcript}
+                    toggleListening={toggleListening}
+                    onNextPhase={nextPhase}
                 />
                 )}
 
-                {currentPhase === PHASES.RECOGNITION && <RecognitionPhase />}
-                
-                {currentPhase === PHASES.REPORT && <ReportPhase />}
+                {currentPhase === PHASES.RECOGNITION && (
+                <RecognitionPhase
+                    recognitionImage={images.recognition}
+                    isListening={isListening}
+                    transcript={transcript}
+                    toggleListening={toggleListening}
+                    onNextPhase={nextPhase}
+                />
+                )}
+
+                {currentPhase === PHASES.REPORT && (
+                <ReportPhase
+                    scores={scores}
+                    educationLevel={educationLevel}
+                    setEducationLevel={setEducationLevel}
+                />
+                )}
 
             </main>
 
