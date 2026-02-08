@@ -82,13 +82,18 @@
 
         // --- COMPONENTES UTILITÁRIOS ---
 
+        // Variável de módulo para evitar repetição de fala quando componentes
+        // definidos dentro de App são remontados a cada re-render do estado
+        let lastSpokenText = '';
+
         const SpeechSynthesizer = ({ text, autoPlay = true }) => {
         useEffect(() => {
-            if (autoPlay && text) {
+            if (autoPlay && text && text !== lastSpokenText) {
+            lastSpokenText = text;
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.lang = 'pt-BR';
             utterance.rate = 1.0;
-            window.speechSynthesis.cancel(); // Parar anterior
+            window.speechSynthesis.cancel();
             window.speechSynthesis.speak(utterance);
             }
         }, [text, autoPlay]);
@@ -220,6 +225,7 @@
         const nextPhase = () => {
             toggleListening(false);
             setTranscript("");
+            lastSpokenText = ''; // Permitir que a nova fase fale sua instrução
             
             switch (currentPhase) {
             case PHASES.WELCOME: setCurrentPhase(PHASES.NAMING); break;
