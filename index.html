@@ -3,825 +3,1304 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BBRC Digital Auto-Aplicável</title>
-    <!-- Tailwind CSS -->
+    <title>BBRC Digital</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & ReactDOM -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- Babel for JSX -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
     <style>
-        body {
-            background-color: #f1f5f9; /* slate-100 */
-        }
-        @media print {
-            .no-print { display: none; }
-            body { background-color: white; }
-        }
+        body { background-color: #f1f5f9; margin: 0; }
+        @media print { .no-print { display: none !important; } body { background-color: white; } }
+        @keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.4); opacity: 0; } }
+        .mic-pulse::before { content:''; position:absolute; inset:-6px; border-radius:50%; border:3px solid #ef4444; animation: pulse-ring 1.2s ease-out infinite; }
+        canvas.clock-canvas { touch-action: none; }
     </style>
 </head>
 <body>
     <div id="root"></div>
-
     <script type="text/babel">
-        const { useState, useEffect, useRef, useCallback } = React;
+        const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
-        // --- ICONS (Substituindo lucide-react para rodar no navegador) ---
-        const Icon = ({ children, ...props }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-                {children}
-            </svg>
-        );
+        /* ==========================================================
+           BBRC Digital — Bateria Breve de Rastreio Cognitivo
+           Reescrita completa com lógica fiel ao protocolo clínico.
 
-        const Mic = (props) => <Icon {...props}><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></Icon>;
-        const MicOff = (props) => <Icon {...props}><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="15" y1="9.34" x2="15" y2="4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></Icon>;
-        const Play = (props) => <Icon {...props}><polygon points="5 3 19 12 5 21 5 3"/></Icon>;
-        const Save = (props) => <Icon {...props}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></Icon>;
-        const RotateCcw = (props) => <Icon {...props}><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></Icon>;
-        const CheckCircle = (props) => <Icon {...props}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></Icon>;
-        const AlertCircle = (props) => <Icon {...props}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></Icon>;
-        const Clock = (props) => <Icon {...props}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></Icon>;
-        const Brain = (props) => <Icon {...props}><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></Icon>;
-        const FileText = (props) => <Icon {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></Icon>;
-        const ImageIcon = (props) => <Icon {...props}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></Icon>;
+           Protocolo de aplicação:
+           1. Nomeação (mostrar 10 figuras, paciente nomeia)
+           2. Memória Incidental (esconder figuras, evocar)
+           3. Memória Imediata — Exposição 30s + Evocação
+           4. Aprendizado — Exposição 30s + Evocação
+           5. Fluência Verbal (animais, 1 minuto)
+           6. Teste do Relógio (desenho 11h10, Shulman 0-5)
+           7. Memória Tardia (evocação após ~5min de interferência)
+           8. Reconhecimento (20 figuras: 10 alvo + 10 distratoras)
+           9. Relatório
+        ========================================================== */
 
+        /* ===== CONSTANTES ===== */
 
-        // --- CONFIGURAÇÃO E DADOS ---
+        const TARGET_FIGURES = ["sapato","casa","pente","chave","aviao","balde","tartaruga","livro","colher","arvore"];
 
-        const TARGET_WORDS = [
-        "sapato", "casa", "pente", "chave", "avião",
-        "balde", "tartaruga", "livro", "colher", "árvore",
-        "arvore", "aviao" // Variações sem acento
+        // Sinônimos e variações aceitas para cada figura-alvo
+        const FIGURE_SYNONYMS = {
+            "sapato": ["sapato","sapatos","calcado","tenis","bota"],
+            "casa": ["casa","casinha","lar","moradia"],
+            "pente": ["pente","pentinho","escova"],
+            "chave": ["chave","chavinha","chaves"],
+            "aviao": ["aviao","aviaozinho","aeronave","avioes"],
+            "balde": ["balde","baldinho","bacia"],
+            "tartaruga": ["tartaruga","tartaruguinha","jabuti","cagado"],
+            "livro": ["livro","livrinho","caderno","livros"],
+            "colher": ["colher","colherzinha","talher"],
+            "arvore": ["arvore","arvorezinha","arvores","planta"]
+        };
+
+        // Lista expandida de animais em português
+        const ANIMAL_LIST = [
+            "cachorro","gato","cavalo","vaca","boi","elefante","leao","tigre","onca","macaco",
+            "girafa","jacare","cobra","passaro","galinha","galo","pato","ganso","rato","camundongo",
+            "coelho","peixe","baleia","tubarao","golfinho","urso","lobo","raposa","porco","ovelha",
+            "cabra","bode","zebra","rinoceronte","hipopotamo","aguia","falcao","papagaio","arara",
+            "tucano","pinguim","foca","lontra","tamandua","tatu","capivara","anta","veado","bufalo",
+            "jumento","burro","mula","egua","cao","felino","ave","inseto","formiga","abelha","mosca",
+            "borboleta","mosquito","barata","aranha","sapo","ra","lagarto","lagartixa","tartaruga",
+            "pombo","coruja","periquito","canario","codorna","cisne","flamingo","peru","grilo",
+            "camarao","lagosta","caranguejo","polvo","sardinha","salmao","gorila","camelo","preguica",
+            "cervo","iguana","camaleao","lula","caracol","lesma","gaviao","besouro","escorpiao",
+            "pantera","leopardo","chita","guepardo","hiena","canguru","coala","ornitorrinco",
+            "castor","texugo","doninha","furão","gambá","esquilo","hamster","porquinho","chinchila",
+            "panda","lhama","alpaca","dromedario","iaque","bisao","alce","rena","antilope",
+            "gazela","gnu","javali","suricato","mangusto","lince","jaguatirica","gato-do-mato",
+            "tamanduai","bicho-preguica","mico","sagui","orangotango","chimpanze","bonobo","gibao",
+            "mandril","babuino","lori","lemure","corvo","gaivota","pelicano","cegonha","garça",
+            "colibri","beija-flor","andorinha","pardal","sabia","bem-te-vi","cardeal","rouxinol",
+            "pavao","avestruz","ema","kiwi","urubu","condor","harpia","crocodilo","iguana",
+            "salamandra","triton","camelao","piton","jiboia","sucuri","cascavel","naja","mamba",
+            "calango","gecko","dragao-de-komodo","perereca","piranha","bagre","tilapia","truta",
+            "atum","bacalhau","robalo","dourado","pacu","pintado","surubim","lambari","cavalo-marinho",
+            "agua-viva","estrela-do-mar","ourico-do-mar","coral","esponja","mexilhao","ostra",
+            "lula","nautilo","centopeia","lacraia","louva-deus","cigarra","libélula","joaninha",
+            "vespa","marimbondo","cupim","piolho","pulga","carrapato","acaro","minhoca","sanguessuga",
+            "lombriga","tenia","bicho","animal","bichano","mascote","cadelinha","gatinho","potro",
+            "bezerra","novilha","touro","carneiro","cordeiro","leitao","cabrito","filhote",
+            "papagaio","maritaca","calopsita","cacatua","agapornis","jabiru","tuiuiu"
         ];
-
-        // Lista estendida para reconhecimento de animais (simplificada)
-        const ANIMAL_KEYWORDS = [
-        "cachorro", "gato", "cavalo", "vaca", "boi", "elefante", "leão", "tigre", "onça", "macaco",
-        "girafa", "jacaré", "cobra", "pássaro", "galinha", "galo", "pato", "ganso", "rato", "camundongo",
-        "coelho", "peixe", "baleia", "tubarão", "golfinho", "urso", "lobo", "raposa", "porco", "ovelha",
-        "cabra", "bode", "zebra", "rinoceronte", "hipopótamo", "águia", "falcão", "papagaio", "arara",
-        "tucano", "pinguim", "foca", "lontra", "tamanduá", "tatu", "capivara", "anta", "veado", "búfalo",
-        "jumento", "burro", "mula", "égua", "cão", "felino", "ave", "inseto", "formiga", "abelha", "mosca"
-        ];
+        const ANIMAL_SET = new Set(ANIMAL_LIST.map(a => normalize(a)));
 
         const PHASES = {
-        WELCOME: 'welcome',
-        NAMING: 'naming',           // Nomeação
-        INCIDENTAL: 'incidental',   // Memória Incidental
-        IMMEDIATE: 'immediate',     // Memória Imediata (30s exp) -> Evocação
-        LEARNING: 'learning',       // Aprendizado (30s exp) -> Evocação
-        FLUENCY: 'fluency',         // Fluência Verbal (Animais 1min)
-        CLOCK: 'clock',             // Desenho do Relógio
-        DELAYED: 'delayed',         // Memória Tardia
-        RECOGNITION: 'recognition', // Reconhecimento
-        REPORT: 'report'
+            WELCOME: 'welcome',
+            NAMING: 'naming',
+            INCIDENTAL: 'incidental',
+            IMMEDIATE_SHOW: 'immediate_show',
+            IMMEDIATE_RECALL: 'immediate_recall',
+            LEARNING_SHOW: 'learning_show',
+            LEARNING_RECALL: 'learning_recall',
+            FLUENCY: 'fluency',
+            CLOCK: 'clock',
+            DELAYED: 'delayed',
+            RECOGNITION: 'recognition',
+            REPORT: 'report'
+        };
+
+        const PHASE_ORDER = [
+            PHASES.WELCOME, PHASES.NAMING, PHASES.INCIDENTAL,
+            PHASES.IMMEDIATE_SHOW, PHASES.IMMEDIATE_RECALL,
+            PHASES.LEARNING_SHOW, PHASES.LEARNING_RECALL,
+            PHASES.FLUENCY, PHASES.CLOCK,
+            PHASES.DELAYED, PHASES.RECOGNITION, PHASES.REPORT
+        ];
+
+        // Instruções faladas UMA VEZ ao entrar na fase
+        const PHASE_INSTRUCTIONS = {
+            [PHASES.WELCOME]: "Bem-vindo à Bateria Breve de Rastreio Cognitivo. Vou mostrar algumas figuras e fazer algumas perguntas. Certifique-se de que está em um local silencioso e permita acesso ao microfone.",
+            [PHASES.NAMING]: "Que figuras são estas? Diga o nome de cada uma delas em voz alta.",
+            [PHASES.INCIDENTAL]: "Agora, sem olhar, diga quais figuras eu acabei de lhe mostrar. Diga todas as que você lembrar.",
+            [PHASES.IMMEDIATE_SHOW]: "Olhe novamente estas figuras e tente decorá-las. Você terá 30 segundos.",
+            [PHASES.IMMEDIATE_RECALL]: "Agora diga quais figuras você lembra.",
+            [PHASES.LEARNING_SHOW]: "Vou mostrar as figuras mais uma vez por 30 segundos. Tente guardar todas na memória.",
+            [PHASES.LEARNING_RECALL]: "Diga novamente quais figuras você lembra.",
+            [PHASES.FLUENCY]: "Agora você terá um minuto para dizer o maior número possível de nomes de animais. Quando estiver pronto, clique em Começar.",
+            [PHASES.CLOCK]: "Agora, desenhe um relógio grande, coloque todos os números, e marque onze horas e dez minutos.",
+            [PHASES.DELAYED]: "Lembra das figuras que eu mostrei antes? Diga todas as que você lembrar.",
+            [PHASES.RECOGNITION]: "Olhe para estas figuras. Diga quais delas faziam parte daquele primeiro grupo que eu mostrei."
         };
 
         const SHULMAN_CRITERIA = [
             { score: 5, label: "Relógio perfeito" },
             { score: 4, label: "Mínimo erro visuoespacial" },
-            { score: 3, label: "Horário 11:10 inadequado, sem grande alteração visuoespacial" },
+            { score: 3, label: "Representação inadequada do horário 11:10, sem grande alteração visuoespacial" },
             { score: 2, label: "Erro visuoespacial moderado, impossibilitando indicação dos ponteiros" },
             { score: 1, label: "Grande desorganização visuoespacial" },
             { score: 0, label: "Incapacidade de representar qualquer imagem de relógio" }
         ];
 
-        // --- COMPONENTES UTILITÁRIOS ---
-
-        // Variável de módulo para evitar repetição de fala quando componentes remontam
-        let lastSpokenText = '';
-
-        const SpeechSynthesizer = ({ text, autoPlay = true }) => {
-        useEffect(() => {
-            if (autoPlay && text && text !== lastSpokenText) {
-            lastSpokenText = text;
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'pt-BR';
-            utterance.rate = 1.0;
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(utterance);
-            }
-        }, [text, autoPlay]);
-
-        return null;
-        };
-
-        // --- COMPONENTES DE FASE (fora do App para referência estável) ---
-
-        const MemoryPhase = ({ title, instruction, showImage, duration = 0, autoAdvance = false, hideInput = false, allowInputWithImage = false, stimuliImage, isListening, transcript, toggleListening, onNextPhase }) => {
-            const [timeLeft, setTimeLeft] = useState(duration);
-            const [showStimulus, setShowStimulus] = useState(showImage);
-            const canShowInput = !showStimulus || allowInputWithImage;
-
-            useEffect(() => {
-            if (duration > 0 && showStimulus) {
-                const interval = setInterval(() => {
-                setTimeLeft(t => {
-                    if (t <= 1) {
-                    clearInterval(interval);
-                    setShowStimulus(false);
-                    if (!autoAdvance) {
-                        toggleListening(true);
-                    }
-                    return 0;
-                    }
-                    return t - 1;
-                });
-                }, 1000);
-                return () => clearInterval(interval);
-            } else if (!showImage) {
-                toggleListening(true);
-            } else if (allowInputWithImage) {
-                toggleListening(true);
-            }
-            }, [duration, showStimulus, allowInputWithImage, showImage, toggleListening]);
-
-            return (
-            <div className="flex flex-col items-center space-y-6 text-center">
-                <SpeechSynthesizer text={showStimulus ? instruction : "Quais figuras eu mostrei?"} />
-                <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-
-                {showStimulus ? (
-                <div className="relative">
-                    <img
-                    src={stimuliImage}
-                    onError={(e) => {
-                        e.target.onerror = null;
-                        e.target.parentElement.innerHTML = `<div class="p-8 border-2 border-red-300 bg-red-50 text-red-800 rounded">Erro: Imagem "bbrc_estimulos.jpg" não encontrada na pasta do site.</div>`;
-                    }}
-                    alt="Estímulos"
-                    className="max-w-full h-auto max-h-[50vh] rounded shadow-md"
-                    />
-                    {duration > 0 && (
-                    <div className="absolute top-2 right-2 bg-black/70 text-white px-3 py-1 rounded-full text-lg font-mono">
-                        {timeLeft}s
-                    </div>
-                    )}
-                </div>
-                ) : (
-                <div className="w-full h-64 bg-gray-100 rounded-lg flex items-center justify-center flex-col">
-                    <Brain size={64} className="text-gray-400 mb-4" />
-                    <p className="text-gray-500">Memória em teste...</p>
-                </div>
-                )}
-
-                {canShowInput && !hideInput && (
-                <div className="w-full max-w-lg">
-                    <div className={`p-4 rounded-lg border-2 ${isListening ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}>
-                    <div className="flex justify-between items-center mb-2">
-                        <span className="font-semibold text-gray-700">Sua resposta (fale agora):</span>
-                        {isListening ? <Mic className="animate-pulse text-red-500" /> : <MicOff className="text-gray-400"/>}
-                    </div>
-                    <div className="min-h-[60px] text-left text-lg p-2 bg-white rounded border border-gray-100">
-                        {transcript || "Ouvindo..."}
-                    </div>
-                    </div>
-                    <p className="text-sm text-gray-500 mt-2">{allowInputWithImage ? "Diga o nome de cada figura em voz alta." : "Diga os nomes das figuras que você lembra."}</p>
-                </div>
-                )}
-
-                {canShowInput && (
-                    <button onClick={onNextPhase} className="px-8 py-3 bg-green-600 text-white rounded-lg font-bold text-lg hover:bg-green-700 shadow-lg flex items-center gap-2">
-                    Próxima Etapa <Play size={20} fill="white" />
-                    </button>
-                )}
-            </div>
-            );
-        };
-
-        const FluencyPhase = ({ transcript, toggleListening, onNextPhase }) => {
-            const [timeLeft, setTimeLeft] = useState(60);
-            const [started, setStarted] = useState(false);
-
-            const startTest = () => {
-            setStarted(true);
-            toggleListening(true);
-            const interval = setInterval(() => {
-                setTimeLeft(t => {
-                if (t <= 1) {
-                    clearInterval(interval);
-                    toggleListening(false);
-                    return 0;
-                }
-                return t - 1;
-                });
-            }, 1000);
-            };
-
-            return (
-            <div className="flex flex-col items-center space-y-6 text-center">
-                <SpeechSynthesizer text="Diga o maior número possível de nomes de animais. Comece agora." autoPlay={started} />
-                <h2 className="text-2xl font-bold text-gray-800">Fluência Verbal</h2>
-
-                {!started ? (
-                <div className="text-center space-y-4">
-                    <p className="text-lg">Você terá 1 minuto para dizer nomes de animais.</p>
-                    <button onClick={startTest} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold text-lg">
-                    Começar (1 minuto)
-                    </button>
-                </div>
-                ) : (
-                <>
-                    <div className="text-6xl font-mono font-bold text-blue-600">{timeLeft}</div>
-                    <div className="w-full max-w-lg p-4 bg-gray-50 rounded-lg border border-gray-200 min-h-[100px]">
-                    <p className="text-gray-500 text-sm mb-2">Animais identificados:</p>
-                    <p className="text-lg">{transcript}</p>
-                    </div>
-                    {timeLeft === 0 && (
-                    <button onClick={onNextPhase} className="px-8 py-3 bg-green-600 text-white rounded-lg font-bold">
-                        Continuar
-                    </button>
-                    )}
-                </>
-                )}
-            </div>
-            );
-        };
-
-        const ClockPhase = ({ onSetClockScore, onNextPhase }) => {
-            const canvasRef = useRef(null);
-            const [isDrawing, setIsDrawing] = useState(false);
-            const [ctx, setCtx] = useState(null);
-            const [selectedScore, setSelectedScore] = useState(null);
-            const [showScoring, setShowScoring] = useState(false);
-
-            useEffect(() => {
-            const canvas = canvasRef.current;
-            const context = canvas.getContext('2d');
-            context.lineCap = 'round';
-            context.lineJoin = 'round';
-            context.lineWidth = 3;
-            context.strokeStyle = 'black';
-            setCtx(context);
-            }, []);
-
-            const startDraw = (e) => {
-            const { offsetX, offsetY } = getCoordinates(e);
-            ctx.beginPath();
-            ctx.moveTo(offsetX, offsetY);
-            setIsDrawing(true);
-            };
-
-            const draw = (e) => {
-            if (!isDrawing) return;
-            const { offsetX, offsetY } = getCoordinates(e);
-            ctx.lineTo(offsetX, offsetY);
-            ctx.stroke();
-            };
-
-            const stopDraw = () => {
-            ctx.closePath();
-            setIsDrawing(false);
-            };
-
-            const getCoordinates = (e) => {
-            if (e.touches && e.touches[0]) {
-                const rect = canvasRef.current.getBoundingClientRect();
-                return {
-                offsetX: e.touches[0].clientX - rect.left,
-                offsetY: e.touches[0].clientY - rect.top
-                };
-            }
-            return { offsetX: e.nativeEvent.offsetX, offsetY: e.nativeEvent.offsetY };
-            };
-
-            const clearCanvas = () => {
-            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-            };
-
-            const finishDrawing = () => {
-            setShowScoring(true);
-            };
-
-            const confirmScore = () => {
-            if (selectedScore === null) return;
-            onSetClockScore(selectedScore);
-            onNextPhase();
-            };
-
-            return (
-            <div className="flex flex-col items-center space-y-4">
-                <SpeechSynthesizer text="Desenhe um relógio grande, coloque todos os números, e marque onze horas e dez minutos." />
-                <h2 className="text-2xl font-bold text-gray-800">Teste do Relógio</h2>
-                <p className="text-gray-600 text-center max-w-md">Desenhe o mostrador, os números e os ponteiros marcando <strong>11h10</strong>.</p>
-
-                <canvas
-                ref={canvasRef}
-                width={300}
-                height={300}
-                className="bg-white border-2 border-gray-300 rounded shadow-inner touch-none cursor-crosshair"
-                onMouseDown={startDraw}
-                onMouseMove={draw}
-                onMouseUp={stopDraw}
-                onMouseLeave={stopDraw}
-                onTouchStart={startDraw}
-                onTouchMove={draw}
-                onTouchEnd={stopDraw}
-                />
-
-                {!showScoring ? (
-                <div className="flex gap-4">
-                    <button onClick={clearCanvas} className="flex items-center gap-2 px-4 py-2 bg-gray-200 rounded text-gray-700 font-medium">
-                    <RotateCcw size={18} /> Limpar
-                    </button>
-                    <button onClick={finishDrawing} className="flex items-center gap-2 px-6 py-2 bg-blue-600 rounded text-white font-bold">
-                    <Save size={18} /> Finalizar Desenho
-                    </button>
-                </div>
-                ) : (
-                <div className="w-full max-w-lg bg-white p-4 rounded-lg border-2 border-blue-300 shadow">
-                    <h3 className="font-bold text-gray-700 mb-3">Pontuação (Critérios de Shulman):</h3>
-                    <div className="space-y-2">
-                    {SHULMAN_CRITERIA.map(({ score, label }) => (
-                        <label key={score} className={`flex items-center gap-3 p-2 rounded cursor-pointer border ${selectedScore === score ? 'bg-blue-100 border-blue-400' : 'border-gray-200 hover:bg-gray-50'}`}>
-                        <input
-                            type="radio"
-                            name="clockScore"
-                            value={score}
-                            checked={selectedScore === score}
-                            onChange={() => setSelectedScore(score)}
-                            className="accent-blue-600"
-                        />
-                        <span className="font-mono font-bold w-6">{score}</span>
-                        <span className="text-sm">{label}</span>
-                        </label>
-                    ))}
-                    </div>
-                    <button
-                    onClick={confirmScore}
-                    disabled={selectedScore === null}
-                    className={`mt-4 w-full py-2 rounded font-bold text-white ${selectedScore !== null ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-300 cursor-not-allowed'}`}
-                    >
-                    Confirmar e Avançar
-                    </button>
-                </div>
-                )}
-            </div>
-            );
-        };
-
-        const RecognitionPhase = ({ recognitionImage, isListening, transcript, toggleListening, onNextPhase }) => {
-            useEffect(() => {
-                toggleListening(true);
-            }, [toggleListening]);
-
-            return (
-            <div className="flex flex-col items-center space-y-6 text-center">
-                <SpeechSynthesizer text="Olhe para estas figuras. Diga ou aponte quais delas faziam parte daquele primeiro grupo que eu lhe mostrei." />
-                <h2 className="text-2xl font-bold text-gray-800">Reconhecimento</h2>
-
-                <img
-                    src={recognitionImage}
-                    onError={(e) => {
-                    e.target.onerror = null;
-                    e.target.parentElement.innerHTML = `<div class="p-8 border-2 border-red-300 bg-red-50 text-red-800 rounded">Erro: Imagem "bbrc_reconhecimento.jpg" não encontrada na pasta do site.</div>`;
-                    }}
-                    alt="Reconhecimento"
-                    className="max-w-full h-auto max-h-[50vh] rounded shadow-md"
-                />
-
-                <div className={`w-full max-w-lg p-4 rounded-lg border-2 ${isListening ? 'border-red-500 bg-red-50' : 'border-gray-200'}`}>
-                    <div className="flex justify-between items-center mb-2">
-                    <span className="font-semibold text-gray-700">Figuras identificadas:</span>
-                    {isListening ? <Mic className="animate-pulse text-red-500" /> : <MicOff className="text-gray-400"/>}
-                    </div>
-                    <div className="min-h-[60px] text-left p-2 bg-white rounded border border-gray-100">
-                    {transcript || "Ouvindo... (Diga o nome das figuras)"}
-                    </div>
-                </div>
-
-                <button onClick={onNextPhase} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold">
-                    Ver Resultados
-                </button>
-            </div>
-            );
-        };
-
-        const ReportPhase = ({ scores, educationLevel, setEducationLevel }) => {
-            const getFeedback = (score, cutoff) => {
-            if (score <= cutoff) return <span className="text-red-600 font-bold flex items-center gap-1"><AlertCircle size={16}/> Atenção</span>;
-            return <span className="text-green-600 font-bold flex items-center gap-1"><CheckCircle size={16}/> Normal</span>;
-            };
-
-            return (
-            <div className="max-w-3xl mx-auto bg-white p-8 rounded-xl shadow-lg print:shadow-none">
-                <div className="text-center mb-8">
-                <h1 className="text-3xl font-bold text-blue-900 mb-2">Relatório BBRC Digital</h1>
-                <p className="text-gray-500">Resultados da Auto-Aplicação</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Tabela de Memória */}
-                <div className="bg-gray-50 p-4 rounded-lg">
-                    <h3 className="font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2"><Brain size={18}/> Perfil de Memória</h3>
-                    <ul className="space-y-3 text-sm">
-                    <li className="flex justify-between items-center">
-                        <span>Nomeação:</span>
-                        <span className="font-mono font-bold">{scores.naming}/10</span>
-                    </li>
-                    <li className="flex justify-between items-center">
-                        <span>Incidental (Corte ≤4):</span>
-                        <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold">{scores.incidental}/10</span>
-                        {getFeedback(scores.incidental, 4)}
-                        </div>
-                    </li>
-                    <li className="flex justify-between items-center">
-                        <span>Imediata (Corte ≤6):</span>
-                        <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold">{scores.immediate}/10</span>
-                        {getFeedback(scores.immediate, 6)}
-                        </div>
-                    </li>
-                    <li className="flex justify-between items-center">
-                        <span>Aprendizado (Corte ≤6):</span>
-                        <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold">{scores.learning}/10</span>
-                        {getFeedback(scores.learning, 6)}
-                        </div>
-                    </li>
-                    <li className="flex justify-between items-center bg-blue-100 p-2 rounded -mx-2">
-                        <span className="font-bold text-blue-900">Memória Tardia (Corte ≤5):</span>
-                        <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-lg">{scores.delayed}/10</span>
-                        {getFeedback(scores.delayed, 5)}
-                        </div>
-                    </li>
-                    <li className="flex justify-between items-center">
-                        <span>Reconhecimento (Corte ≤7):</span>
-                        <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold">{scores.recognition}/10</span>
-                        {getFeedback(scores.recognition, 7)}
-                        </div>
-                    </li>
-                    </ul>
-                </div>
-
-                {/* Funções Executivas */}
-                <div className="bg-gray-50 p-4 rounded-lg">
-                    <h3 className="font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2"><Clock size={18}/> Funções Executivas</h3>
-
-                    <div className="mb-4">
-                        <label className="block text-sm font-semibold text-gray-600 mb-1">Escolaridade do paciente:</label>
-                        <select
-                            value={educationLevel}
-                            onChange={(e) => setEducationLevel(Number(e.target.value))}
-                            className="w-full p-2 border border-gray-300 rounded text-sm"
-                        >
-                            <option value={0}>Analfabeto</option>
-                            <option value={1}>1–7 anos de escolaridade</option>
-                            <option value={2}>8+ anos de escolaridade</option>
-                        </select>
-                    </div>
-
-                    <ul className="space-y-4 text-sm">
-                    <li>
-                        <div className="flex justify-between items-center mb-1">
-                        <span>Fluência Verbal (Animais):</span>
-                        <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-lg">{scores.fluency}</span>
-                            {getFeedback(scores.fluency, educationLevel === 0 ? 8 : educationLevel === 1 ? 11 : 12)}
-                        </div>
-                        </div>
-                        <p className="text-xs text-gray-500">
-                            Corte: ≤8 (Analfabetos), ≤11 (1-7 anos), ≤12 (8+ anos)
-                        </p>
-                    </li>
-                    <li>
-                        <div className="flex justify-between items-center mb-1">
-                        <span>Desenho do Relógio (Shulman):</span>
-                        <span className="font-mono font-bold text-lg">{scores.clock}/5</span>
-                        </div>
-                        <p className="text-xs text-gray-500">Pontuação conforme critérios de Shulman (0-5).</p>
-                    </li>
-                    </ul>
-                </div>
-                </div>
-
-                <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                <strong>Nota Importante:</strong> Este é um instrumento de rastreio digital. Os resultados podem ser influenciados pela qualidade do microfone, ruído ambiente ou familiaridade com tecnologia. Um resultado abaixo do ponto de corte sugere a necessidade de avaliação formal com um profissional de saúde, mas não confirma diagnóstico de demência.
-                </div>
-
-                <button onClick={() => window.print()} className="mt-6 w-full py-3 border-2 border-blue-600 text-blue-600 font-bold rounded hover:bg-blue-50 flex items-center justify-center gap-2">
-                <FileText size={20}/> Imprimir / Salvar PDF
-                </button>
-            </div>
-            );
-        };
-
-        // --- COMPONENTE PRINCIPAL ---
-
-        function App() {
-        const [currentPhase, setCurrentPhase] = useState(PHASES.WELCOME);
-
-        const [images] = useState({
-            stimuli: './bbrc_estimulos.jpg',
-            recognition: './bbrc_reconhecimento.jpg'
-        });
-
-        const [transcript, setTranscript] = useState("");
-        const [isListening, setIsListening] = useState(false);
-        const [scores, setScores] = useState({
-            naming: 0,
-            incidental: 0,
-            immediate: 0,
-            learning: 0,
-            fluency: 0,
-            clock: 0,
-            delayed: 0,
-            recognition: 0
-        });
-        const [educationLevel, setEducationLevel] = useState(2);
-
-        const recognitionRef = useRef(null);
-        const isListeningRef = useRef(false);
-
-        // --- LÓGICA DE RECONHECIMENTO DE VOZ ---
-
-        useEffect(() => {
-            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognitionRef.current = new SpeechRecognition();
-            recognitionRef.current.continuous = true;
-            recognitionRef.current.interimResults = true;
-            recognitionRef.current.lang = 'pt-BR';
-
-            recognitionRef.current.onresult = (event) => {
-                let finalTranscript = '';
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                if (event.results[i].isFinal) {
-                    finalTranscript += event.results[i][0].transcript + ' ';
-                }
-                }
-                if (finalTranscript) {
-                setTranscript(prev => (prev + " " + finalTranscript).trim());
-                }
-            };
-
-            recognitionRef.current.onerror = (event) => {
-                console.error("Erro no reconhecimento de voz:", event.error);
-                setIsListening(false);
-                isListeningRef.current = false;
-            };
-
-            recognitionRef.current.onend = () => {
-                // Reiniciar se deveria estar ouvindo (para contornar paradas automáticas)
-                if (isListeningRef.current) {
-                    try { recognitionRef.current.start(); } catch(e) {}
-                }
-            };
-            } else {
-            alert("Seu navegador não suporta reconhecimento de voz. Use Chrome ou Edge.");
-            }
-        }, []);
-
-        const toggleListening = useCallback((shouldListen) => {
-            if (!recognitionRef.current) return;
-
-            isListeningRef.current = shouldListen;
-            setIsListening(shouldListen);
-
-            if (shouldListen) {
-            // Atraso para garantir que um stop() pendente tenha finalizado
-            setTimeout(() => {
-                if (isListeningRef.current) {
-                try { recognitionRef.current.start(); } catch (e) {}
-                }
-            }, 150);
-            } else {
-            try { recognitionRef.current.stop(); } catch (e) {}
-            }
-        }, []);
-
-        // --- LÓGICA DE PONTUAÇÃO AUTOMÁTICA (NLP SIMPLIFICADA) ---
-
-        const calculateScore = (text, type) => {
-            const normalizedText = text.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-            const words = normalizedText.split(/\s+/);
-
-            if (type === 'fluency') {
-            const uniqueAnimals = new Set();
-            words.forEach(w => {
-                if (ANIMAL_KEYWORDS.includes(w)) uniqueAnimals.add(w);
-            });
-            return uniqueAnimals.size;
-            } else {
-            const foundTargets = new Set();
-            words.forEach(w => {
-                if (TARGET_WORDS.includes(w)) {
-                let cleanWord = w;
-                if(w === 'arvore') cleanWord = 'árvore';
-                if(w === 'aviao') cleanWord = 'avião';
-                foundTargets.add(cleanWord);
-                }
-            });
-            return foundTargets.size;
-            }
-        };
-
-        // --- NAVEGAÇÃO ENTRE FASES ---
-
-        const nextPhase = useCallback(() => {
-            toggleListening(false);
-            lastSpokenText = '';
-
-            switch (currentPhase) {
-            case PHASES.WELCOME:
-                setTranscript("");
-                setCurrentPhase(PHASES.NAMING);
-                break;
-            case PHASES.NAMING:
-                setScores(s => ({...s, naming: calculateScore(transcript, 'memory')}));
-                setTranscript("");
-                setCurrentPhase(PHASES.INCIDENTAL);
-                break;
-            case PHASES.INCIDENTAL:
-                setScores(s => ({...s, incidental: calculateScore(transcript, 'memory')}));
-                setTranscript("");
-                setCurrentPhase(PHASES.IMMEDIATE);
-                break;
-            case PHASES.IMMEDIATE:
-                setScores(s => ({...s, immediate: calculateScore(transcript, 'memory')}));
-                setTranscript("");
-                setCurrentPhase(PHASES.LEARNING);
-                break;
-            case PHASES.LEARNING:
-                setScores(s => ({...s, learning: calculateScore(transcript, 'memory')}));
-                setTranscript("");
-                setCurrentPhase(PHASES.FLUENCY);
-                break;
-            case PHASES.FLUENCY:
-                setScores(s => ({...s, fluency: calculateScore(transcript, 'fluency')}));
-                setTranscript("");
-                setCurrentPhase(PHASES.CLOCK);
-                break;
-            case PHASES.CLOCK:
-                setTranscript("");
-                setCurrentPhase(PHASES.DELAYED);
-                break;
-            case PHASES.DELAYED:
-                setScores(s => ({...s, delayed: calculateScore(transcript, 'memory')}));
-                setTranscript("");
-                setCurrentPhase(PHASES.RECOGNITION);
-                break;
-            case PHASES.RECOGNITION:
-                setScores(s => ({...s, recognition: calculateScore(transcript, 'memory')}));
-                setTranscript("");
-                setCurrentPhase(PHASES.REPORT);
-                break;
-            default: break;
-            }
-        }, [currentPhase, transcript, toggleListening]);
-
-        const setClockScore = useCallback((score) => {
-            setScores(s => ({...s, clock: score}));
-        }, []);
-
-        // --- RENDERIZAÇÃO CENTRAL ---
-
-        return (
-            <div className="min-h-screen bg-slate-100 p-4 font-sans text-slate-900">
-            <header className="mb-6 flex justify-between items-center bg-white p-4 rounded-lg shadow-sm">
-                <h1 className="text-xl font-bold text-blue-800 flex items-center gap-2">
-                <Brain className="text-blue-600" /> BBRC Digital
-                </h1>
-                <div className="text-sm text-gray-500">Fase: {currentPhase.toUpperCase()}</div>
-            </header>
-
-            <main className="max-w-4xl mx-auto">
-
-                {currentPhase === PHASES.WELCOME && (
-                <div className="text-center bg-white p-8 rounded-xl shadow-lg">
-                    <SpeechSynthesizer text="Bem vindo. Eu vou mostrar algumas figuras e fazer algumas perguntas. Por favor, certifique-se de que está em um local silencioso." />
-                    <h2 className="text-2xl font-bold mb-4">Instruções</h2>
-                    <p className="mb-6 text-gray-600">Este teste avaliará sua memória e atenção. O computador falará com você. Responda em voz alta e clara após o sinal.</p>
-                    <button onClick={nextPhase} className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold text-lg hover:bg-blue-700">Começar</button>
-                </div>
-                )}
-
-                {currentPhase === PHASES.NAMING && (
-                <MemoryPhase
-                    title="Nomeação"
-                    instruction="Que figuras são estas? Diga o nome de cada uma em voz alta."
-                    showImage={true}
-                    duration={0}
-                    allowInputWithImage={true}
-                    stimuliImage={images.stimuli}
-                    isListening={isListening}
-                    transcript={transcript}
-                    toggleListening={toggleListening}
-                    onNextPhase={nextPhase}
-                />
-                )}
-
-                {currentPhase === PHASES.INCIDENTAL && (
-                <MemoryPhase
-                    title="Memória Incidental"
-                    instruction="Agora, sem olhar, quais figuras eu acabei de lhe mostrar?"
-                    showImage={false}
-                    stimuliImage={images.stimuli}
-                    isListening={isListening}
-                    transcript={transcript}
-                    toggleListening={toggleListening}
-                    onNextPhase={nextPhase}
-                />
-                )}
-
-                {currentPhase === PHASES.IMMEDIATE && (
-                <MemoryPhase
-                    title="Memória Imediata"
-                    instruction="Olhe estas figuras novamente e tente decorá-las. Você tem 30 segundos."
-                    showImage={true}
-                    duration={30}
-                    stimuliImage={images.stimuli}
-                    isListening={isListening}
-                    transcript={transcript}
-                    toggleListening={toggleListening}
-                    onNextPhase={nextPhase}
-                />
-                )}
-
-                {currentPhase === PHASES.LEARNING && (
-                <MemoryPhase
-                    title="Aprendizado"
-                    instruction="Vou mostrar mais uma vez por 30 segundos. Tente guardar todas na memória."
-                    showImage={true}
-                    duration={30}
-                    stimuliImage={images.stimuli}
-                    isListening={isListening}
-                    transcript={transcript}
-                    toggleListening={toggleListening}
-                    onNextPhase={nextPhase}
-                />
-                )}
-
-                {currentPhase === PHASES.FLUENCY && (
-                <FluencyPhase
-                    transcript={transcript}
-                    toggleListening={toggleListening}
-                    onNextPhase={nextPhase}
-                />
-                )}
-
-                {currentPhase === PHASES.CLOCK && (
-                <ClockPhase
-                    onSetClockScore={setClockScore}
-                    onNextPhase={nextPhase}
-                />
-                )}
-
-                {currentPhase === PHASES.DELAYED && (
-                <MemoryPhase
-                    title="Memória Tardia"
-                    instruction="Passou algum tempo. Que figuras eu mostrei para você no começo?"
-                    showImage={false}
-                    stimuliImage={images.stimuli}
-                    isListening={isListening}
-                    transcript={transcript}
-                    toggleListening={toggleListening}
-                    onNextPhase={nextPhase}
-                />
-                )}
-
-                {currentPhase === PHASES.RECOGNITION && (
-                <RecognitionPhase
-                    recognitionImage={images.recognition}
-                    isListening={isListening}
-                    transcript={transcript}
-                    toggleListening={toggleListening}
-                    onNextPhase={nextPhase}
-                />
-                )}
-
-                {currentPhase === PHASES.REPORT && (
-                <ReportPhase
-                    scores={scores}
-                    educationLevel={educationLevel}
-                    setEducationLevel={setEducationLevel}
-                />
-                )}
-
-            </main>
-
-            {/* Indicador de Status do Microfone Global */}
-            <div className="fixed bottom-4 right-4 flex items-center gap-2 bg-white px-3 py-1 rounded-full shadow border text-xs no-print">
-                {isListening ? (
-                <>
-                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                    <span className="text-red-600 font-bold">Microfone Ativo</span>
-                </>
-                ) : (
-                <span className="text-gray-400">Microfone em espera</span>
-                )}
-            </div>
-            </div>
-        );
+        /* ===== NORMALIZAÇÃO DE TEXTO ===== */
+
+        function normalize(text) {
+            return text.toLowerCase()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^\w\s]/g, '')
+                .trim();
         }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        /* ===== PONTUAÇÃO: FIGURAS-ALVO ===== */
+
+        function matchTargetFigures(text) {
+            if (!text || !text.trim()) return { count: 0, found: [], intrusions: [] };
+            const words = normalize(text).split(/\s+/);
+            const found = new Set();
+            const intrusions = [];
+
+            // Tentar agrupar bigrams também (ex: "bicho preguica" → não aplica aqui, mas previne problemas)
+            const allTokens = [...words];
+            for (let i = 0; i < words.length - 1; i++) {
+                allTokens.push(words[i] + ' ' + words[i+1]);
+            }
+
+            allTokens.forEach(token => {
+                let matched = false;
+                for (const [figure, synonyms] of Object.entries(FIGURE_SYNONYMS)) {
+                    const normalizedSynonyms = synonyms.map(s => normalize(s));
+                    if (normalizedSynonyms.includes(normalize(token))) {
+                        found.add(figure);
+                        matched = true;
+                        break;
+                    }
+                }
+                // Não contar intrusões para bigrams ou palavras comuns/conectivos
+                if (!matched && token.length > 2 && !token.match(/^(que|uma|um|de|do|da|os|as|no|na|tem|the|e|ou|com|por|para|esse|essa|este|esta|aquele|aquela|mais|foi|era|ser|ter|sim|nao|ai|ah|hum|entao|tipo|assim|la|ca|bem|bom|depois|antes|agora|muito|pouco)$/)) {
+                    if (!token.includes(' ')) intrusions.push(token);
+                }
+            });
+
+            return { count: found.size, found: Array.from(found), intrusions };
+        }
+
+        /* ===== PONTUAÇÃO: ANIMAIS ===== */
+
+        function matchAnimals(text) {
+            if (!text || !text.trim()) return { count: 0, found: [], invalid: [] };
+            const words = normalize(text).split(/\s+/);
+            const found = new Set();
+            const invalid = [];
+
+            // Bigrams para animais compostos
+            const allTokens = [...words];
+            for (let i = 0; i < words.length - 1; i++) {
+                allTokens.push(words[i] + '-' + words[i+1]);
+                allTokens.push(words[i] + words[i+1]);
+            }
+
+            allTokens.forEach(token => {
+                const norm = normalize(token);
+                if (ANIMAL_SET.has(norm) && !found.has(norm)) {
+                    found.add(norm);
+                }
+            });
+
+            return { count: found.size, found: Array.from(found), invalid };
+        }
+
+        /* ===== VOZ SINTÉTICA (TTS) ===== */
+
+        let bestVoice = null;
+        let voicesLoaded = false;
+
+        function loadVoices() {
+            const voices = window.speechSynthesis.getVoices();
+            if (voices.length === 0) return;
+            voicesLoaded = true;
+            const ptBR = voices.filter(v => v.lang && (v.lang.startsWith('pt-BR') || v.lang.startsWith('pt_BR')));
+            const pt = voices.filter(v => v.lang && v.lang.startsWith('pt'));
+            // Prioridade: Google PT-BR > vozes premium/naturais > qualquer pt-BR > qualquer pt
+            bestVoice = ptBR.find(v => /google/i.test(v.name)) ||
+                        pt.find(v => /google/i.test(v.name)) ||
+                        ptBR.find(v => /luciana|fernanda|premium|enhanced|natural|neural/i.test(v.name)) ||
+                        ptBR[0] || pt[0] || null;
+        }
+
+        loadVoices();
+        if (window.speechSynthesis.onvoiceschanged !== undefined) {
+            window.speechSynthesis.onvoiceschanged = loadVoices;
+        }
+
+        function speakText(text, onEnd) {
+            return new Promise((resolve) => {
+                window.speechSynthesis.cancel();
+                if (!text) { resolve(); if (onEnd) onEnd(); return; }
+                const u = new SpeechSynthesisUtterance(text);
+                u.lang = 'pt-BR';
+                if (bestVoice) u.voice = bestVoice;
+                u.rate = 0.92;
+                u.pitch = 1.0;
+                u.volume = 1.0;
+                u.onend = () => { resolve(); if (onEnd) onEnd(); };
+                u.onerror = () => { resolve(); if (onEnd) onEnd(); };
+                window.speechSynthesis.speak(u);
+            });
+        }
+
+        function stopSpeaking() {
+            window.speechSynthesis.cancel();
+        }
+
+        /* ===== ANÁLISE DO RELÓGIO (Canvas heurística melhorada) ===== */
+
+        function analyzeClockDrawing(canvas) {
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const data = imgData.data;
+
+            const cx = w / 2, cy = h / 2;
+            const maxR = Math.min(cx, cy) * 0.95;
+
+            // Conta pixels não-brancos (com conteúdo)
+            let totalInk = 0;
+            let pixelsByDistance = new Array(20).fill(0); // bins de distância
+            const quadrants = [0, 0, 0, 0]; // TR, TL, BL, BR
+            let topHalf = 0, bottomHalf = 0;
+            let centerArea = 0; // pixels perto do centro (ponteiros?)
+            let hasContent = false;
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const idx = (y * w + x) * 4;
+                    const r = data[idx], g = data[idx+1], b = data[idx+2], a = data[idx+3];
+                    // Pixel com tinta = não branco com alguma opacidade
+                    if (a > 30 && (r < 240 || g < 240 || b < 240)) {
+                        totalInk++;
+                        hasContent = true;
+                        const dx = x - cx, dy = y - cy;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        const normDist = dist / maxR;
+                        const bin = Math.min(19, Math.floor(normDist * 20));
+                        pixelsByDistance[bin]++;
+
+                        // Quadrantes
+                        if (dist > maxR * 0.3 && dist < maxR * 1.1) {
+                            if (dx >= 0 && dy < 0) quadrants[0]++;  // top-right
+                            else if (dx < 0 && dy < 0) quadrants[1]++; // top-left
+                            else if (dx < 0 && dy >= 0) quadrants[2]++; // bottom-left
+                            else quadrants[3]++; // bottom-right
+                        }
+
+                        if (dy < 0) topHalf++;
+                        else bottomHalf++;
+
+                        if (dist < maxR * 0.35) centerArea++;
+                    }
+                }
+            }
+
+            // Sem desenho
+            if (!hasContent || totalInk < 80) {
+                return { score: 0, reason: "Nenhum desenho detectado ou desenho insuficiente." };
+            }
+
+            // Muito pouco conteúdo
+            if (totalInk < 400) {
+                return { score: 1, reason: "Desenho muito escasso, grande desorganização." };
+            }
+
+            // Análise de circularidade: pixels na "borda" do relógio (60-90% do raio)
+            const ringPixels = pixelsByDistance.slice(10, 18).reduce((a, b) => a + b, 0);
+            const innerPixels = pixelsByDistance.slice(0, 8).reduce((a, b) => a + b, 0);
+            const outerPixels = pixelsByDistance.slice(18).reduce((a, b) => a + b, 0);
+
+            const ringRatio = ringPixels / totalInk;
+            const innerRatio = innerPixels / totalInk;
+            const outerRatio = outerPixels / totalInk;
+
+            // Balanceamento dos quadrantes (números distribuídos uniformemente?)
+            const minQ = Math.min(...quadrants);
+            const maxQ = Math.max(...quadrants);
+            const quadBalance = maxQ > 0 ? minQ / maxQ : 0;
+
+            // Balanceamento topo/base
+            const vertBalance = (topHalf + bottomHalf) > 0 ? Math.min(topHalf, bottomHalf) / Math.max(topHalf, bottomHalf) : 0;
+
+            // Centro tem tinta? (indica ponteiros)
+            const centerRatio = centerArea / totalInk;
+            const hasPointers = centerRatio > 0.05 && innerRatio > 0.15;
+
+            // Scoring heurístico
+            let score = 0;
+            let reason = "";
+
+            if (outerRatio > 0.35) {
+                score = 1;
+                reason = "Muitos traços fora da área esperada do relógio. Grande desorganização visuoespacial.";
+            } else if (ringRatio < 0.15 && quadBalance < 0.1) {
+                score = 2;
+                reason = "Estrutura circular pouco definida. Erro visuoespacial moderado.";
+            } else if (ringRatio >= 0.2 && quadBalance >= 0.25 && hasPointers && vertBalance > 0.35) {
+                // Bom círculo, boa distribuição, ponteiros detectados
+                if (quadBalance > 0.45 && vertBalance > 0.5 && ringRatio > 0.25) {
+                    score = 5;
+                    reason = "Boa estrutura circular, números distribuídos uniformemente, ponteiros detectados. Relógio aparentemente correto.";
+                } else {
+                    score = 4;
+                    reason = "Boa estrutura circular com números distribuídos e ponteiros detectados. Mínimo erro visuoespacial.";
+                }
+            } else if (ringRatio >= 0.15 && quadBalance >= 0.15) {
+                if (hasPointers) {
+                    score = 3;
+                    reason = "Estrutura circular reconhecível com ponteiros, mas possível representação inadequada do horário.";
+                } else {
+                    score = 3;
+                    reason = "Estrutura circular reconhecível, mas ponteiros não claramente identificados.";
+                }
+            } else if (ringRatio >= 0.1) {
+                score = 2;
+                reason = "Estrutura parcialmente reconhecível. Erro visuoespacial moderado.";
+            } else {
+                score = 1;
+                reason = "Desenho com grande desorganização visuoespacial.";
+            }
+
+            return { score, reason };
+        }
+
+        /* ===== ÍCONES SVG ===== */
+
+        const Icon = ({ children, size = 24, className = "", ...props }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                 strokeLinejoin="round" className={className} {...props}>{children}</svg>
+        );
+        const MicIcon = (p) => <Icon {...p}><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></Icon>;
+        const MicOffIcon = (p) => <Icon {...p}><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="15" y1="9.34" x2="15" y2="4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></Icon>;
+        const PlayIcon = (p) => <Icon {...p}><polygon points="5 3 19 12 5 21 5 3"/></Icon>;
+        const SaveIcon = (p) => <Icon {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></Icon>;
+        const UndoIcon = (p) => <Icon {...p}><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></Icon>;
+        const CheckIcon = (p) => <Icon {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></Icon>;
+        const AlertIcon = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></Icon>;
+        const ClockIcon = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></Icon>;
+        const BrainIcon = (p) => <Icon {...p}><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></Icon>;
+        const PrintIcon = (p) => <Icon {...p}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></Icon>;
+        const EyeIcon = (p) => <Icon {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></Icon>;
+        const EyeOffIcon = (p) => <Icon {...p}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></Icon>;
+
+        /* ===== HOOK: RECONHECIMENTO DE VOZ ===== */
+
+        function useSpeechRecognition() {
+            const recRef = useRef(null);
+            const [isListening, setIsListening] = useState(false);
+            const [transcript, setTranscript] = useState('');
+            const isActiveRef = useRef(false);
+            const restartTimeoutRef = useRef(null);
+
+            useEffect(() => {
+                const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SR) return;
+
+                const rec = new SR();
+                rec.continuous = true;
+                rec.interimResults = true;
+                rec.lang = 'pt-BR';
+                rec.maxAlternatives = 3;
+
+                rec.onresult = (ev) => {
+                    let finalText = '';
+                    for (let i = 0; i < ev.results.length; i++) {
+                        if (ev.results[i].isFinal) {
+                            finalText += ev.results[i][0].transcript + ' ';
+                        }
+                    }
+                    if (finalText.trim()) {
+                        setTranscript(prev => {
+                            const combined = (prev + ' ' + finalText).trim();
+                            return combined;
+                        });
+                    }
+                };
+
+                rec.onerror = (ev) => {
+                    if (ev.error === 'aborted' || ev.error === 'no-speech') return;
+                    console.warn('Speech recognition error:', ev.error);
+                };
+
+                rec.onend = () => {
+                    // Auto-restart if still supposed to be listening
+                    if (isActiveRef.current) {
+                        if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+                        restartTimeoutRef.current = setTimeout(() => {
+                            if (isActiveRef.current && recRef.current) {
+                                try { recRef.current.start(); } catch(e) {}
+                            }
+                        }, 300);
+                    }
+                };
+
+                recRef.current = rec;
+
+                return () => {
+                    isActiveRef.current = false;
+                    if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+                    try { rec.stop(); } catch(e) {}
+                };
+            }, []);
+
+            const startListening = useCallback(() => {
+                if (!recRef.current || isActiveRef.current) return;
+                isActiveRef.current = true;
+                setIsListening(true);
+                // Pequeno delay para evitar conflito com TTS
+                setTimeout(() => {
+                    if (isActiveRef.current && recRef.current) {
+                        try { recRef.current.start(); } catch(e) {}
+                    }
+                }, 400);
+            }, []);
+
+            const stopListening = useCallback(() => {
+                isActiveRef.current = false;
+                setIsListening(false);
+                if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+                if (recRef.current) {
+                    try { recRef.current.stop(); } catch(e) {}
+                }
+            }, []);
+
+            const resetTranscript = useCallback(() => {
+                setTranscript('');
+            }, []);
+
+            return { isListening, transcript, startListening, stopListening, resetTranscript, setTranscript };
+        }
+
+        /* ===== COMPONENTE: CAIXA DE VOZ ===== */
+
+        function VoiceBox({ isListening, transcript, hint }) {
+            return (
+                <div className="w-full max-w-lg mx-auto">
+                    <div className={`p-4 rounded-lg border-2 transition-colors duration-300 ${isListening ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
+                        <div className="flex justify-between items-center mb-2">
+                            <span className={`font-semibold text-sm ${isListening ? 'text-red-700' : 'text-gray-500'}`}>
+                                {isListening ? 'Ouvindo sua resposta...' : 'Microfone desligado'}
+                            </span>
+                            <div className="relative">
+                                {isListening ? (
+                                    <div className="relative mic-pulse">
+                                        <MicIcon size={20} className="text-red-500"/>
+                                    </div>
+                                ) : (
+                                    <MicOffIcon size={20} className="text-gray-400"/>
+                                )}
+                            </div>
+                        </div>
+                        <div className="min-h-[60px] text-left text-base p-3 bg-white rounded border border-gray-100 leading-relaxed">
+                            {transcript || <span className="text-gray-400 italic text-sm">{hint || "Aguardando resposta..."}</span>}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        /* ===== COMPONENTE: BOTÃO PRÓXIMA ETAPA ===== */
+
+        function NextButton({ onClick, label = "Próxima Etapa", disabled = false }) {
+            return (
+                <button onClick={onClick} disabled={disabled}
+                    className={`px-8 py-3 rounded-lg font-bold text-lg shadow-lg flex items-center gap-2 transition-all
+                        ${disabled ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700 hover:shadow-xl active:scale-95'}`}>
+                    {label} <PlayIcon size={18} className={disabled ? "" : "fill-white"}/>
+                </button>
+            );
+        }
+
+        /* ===== COMPONENTE: BOAS-VINDAS ===== */
+
+        function WelcomePhase({ onStart }) {
+            const [ready, setReady] = useState(false);
+
+            useEffect(() => {
+                speakText(PHASE_INSTRUCTIONS[PHASES.WELCOME]).then(() => setReady(true));
+                return () => stopSpeaking();
+            }, []);
+
+            return (
+                <div className="text-center bg-white p-10 rounded-xl shadow-lg space-y-6 max-w-xl mx-auto">
+                    <BrainIcon size={56} className="mx-auto text-blue-600"/>
+                    <h2 className="text-3xl font-bold text-gray-800">Bateria Breve de Rastreio Cognitivo</h2>
+                    <p className="text-gray-600 text-lg leading-relaxed">
+                        Este teste avaliará sua memória e outras funções cognitivas.<br/>
+                        O computador dará instruções por voz. Responda em <strong>voz alta</strong> e clara.
+                    </p>
+                    <p className="text-sm text-gray-400">Certifique-se de estar em um local silencioso e permita acesso ao microfone.</p>
+                    <button onClick={onStart}
+                        className="bg-blue-600 text-white px-12 py-4 rounded-lg font-bold text-xl hover:bg-blue-700 shadow-lg transition-all hover:shadow-xl active:scale-95">
+                        Iniciar Teste
+                    </button>
+                </div>
+            );
+        }
+
+        /* ===== COMPONENTE: NOMEAÇÃO ===== */
+
+        function NamingPhase({ isListening, transcript, startListening, onNext }) {
+            const [instructionDone, setInstructionDone] = useState(false);
+
+            useEffect(() => {
+                speakText(PHASE_INSTRUCTIONS[PHASES.NAMING]).then(() => {
+                    setInstructionDone(true);
+                    startListening();
+                });
+                return () => stopSpeaking();
+            }, []);
+
+            return (
+                <div className="flex flex-col items-center space-y-5 text-center bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto">
+                    <div className="flex items-center gap-2">
+                        <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">Etapa 1</span>
+                        <h2 className="text-2xl font-bold text-gray-800">Nomeação</h2>
+                    </div>
+                    <p className="text-gray-600">Diga o nome de cada figura em voz alta.</p>
+                    <img src="./bbrc_estimulos.jpg" alt="10 figuras estímulo BBRC"
+                         className="max-w-full h-auto max-h-[45vh] rounded-lg shadow-md border"
+                         onError={(e)=>{e.target.onerror=null; e.target.alt='Erro ao carregar bbrc_estimulos.jpg';}} />
+                    {instructionDone && (
+                        <VoiceBox isListening={isListening} transcript={transcript} hint="Diga o nome de cada figura..." />
+                    )}
+                    <NextButton onClick={onNext} />
+                </div>
+            );
+        }
+
+        /* ===== COMPONENTE: EVOCAÇÃO (Incidental, Imediata, Aprendizado, Tardia) ===== */
+
+        function RecallPhase({ stepNumber, title, phaseKey, isListening, transcript, startListening, onNext }) {
+            const [instructionDone, setInstructionDone] = useState(false);
+
+            useEffect(() => {
+                speakText(PHASE_INSTRUCTIONS[phaseKey]).then(() => {
+                    setInstructionDone(true);
+                    startListening();
+                });
+                return () => stopSpeaking();
+            }, []);
+
+            return (
+                <div className="flex flex-col items-center space-y-5 text-center bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto">
+                    <div className="flex items-center gap-2">
+                        <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">Etapa {stepNumber}</span>
+                        <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
+                    </div>
+                    <div className="w-full max-w-md h-40 bg-gray-50 rounded-lg flex items-center justify-center flex-col border-2 border-dashed border-gray-300">
+                        <EyeOffIcon size={48} className="text-gray-300 mb-2" />
+                        <p className="text-gray-400 text-sm">As figuras estão escondidas.</p>
+                    </div>
+                    {instructionDone && (
+                        <VoiceBox isListening={isListening} transcript={transcript} hint="Diga os nomes das figuras que você lembra..." />
+                    )}
+                    <NextButton onClick={onNext} />
+                </div>
+            );
+        }
+
+        /* ===== COMPONENTE: EXPOSIÇÃO (30s com imagem) ===== */
+
+        function ExposurePhase({ stepNumber, title, phaseKey, onTimerEnd }) {
+            const [timeLeft, setTimeLeft] = useState(30);
+            const [instructionDone, setInstructionDone] = useState(false);
+            const timerRef = useRef(null);
+
+            useEffect(() => {
+                speakText(PHASE_INSTRUCTIONS[phaseKey]).then(() => {
+                    setInstructionDone(true);
+                });
+                return () => {
+                    stopSpeaking();
+                    if (timerRef.current) clearInterval(timerRef.current);
+                };
+            }, []);
+
+            // Iniciar timer somente após instrução
+            useEffect(() => {
+                if (!instructionDone) return;
+                timerRef.current = setInterval(() => {
+                    setTimeLeft(t => {
+                        if (t <= 1) {
+                            clearInterval(timerRef.current);
+                            timerRef.current = null;
+                            onTimerEnd();
+                            return 0;
+                        }
+                        return t - 1;
+                    });
+                }, 1000);
+                return () => { if (timerRef.current) clearInterval(timerRef.current); };
+            }, [instructionDone, onTimerEnd]);
+
+            return (
+                <div className="flex flex-col items-center space-y-5 text-center bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto">
+                    <div className="flex items-center gap-2">
+                        <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">Etapa {stepNumber}</span>
+                        <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
+                    </div>
+                    <p className="text-gray-600">Observe e tente memorizar as figuras.</p>
+                    <div className="relative">
+                        <img src="./bbrc_estimulos.jpg" alt="10 figuras estímulo BBRC"
+                             className="max-w-full h-auto max-h-[45vh] rounded-lg shadow-md border" />
+                        <div className={`absolute top-3 right-3 px-4 py-2 rounded-full text-xl font-mono font-bold shadow-lg
+                            ${timeLeft <= 10 ? 'bg-red-600 text-white animate-pulse' : 'bg-black/70 text-white'}`}>
+                            {instructionDone ? `${timeLeft}s` : '...'}
+                        </div>
+                    </div>
+                    <p className="text-sm text-gray-400">A imagem desaparecerá automaticamente quando o tempo acabar.</p>
+                </div>
+            );
+        }
+
+        /* ===== COMPONENTE: FLUÊNCIA VERBAL ===== */
+
+        function FluencyPhase({ transcript, isListening, startListening, stopListening, onNext }) {
+            const [stage, setStage] = useState('intro'); // 'intro' | 'running' | 'done'
+            const [timeLeft, setTimeLeft] = useState(60);
+            const timerRef = useRef(null);
+
+            useEffect(() => {
+                speakText(PHASE_INSTRUCTIONS[PHASES.FLUENCY]);
+                return () => {
+                    stopSpeaking();
+                    if (timerRef.current) clearInterval(timerRef.current);
+                };
+            }, []);
+
+            const handleStart = useCallback(() => {
+                setStage('running');
+                speakText("Comece agora.").then(() => {
+                    startListening();
+                });
+                timerRef.current = setInterval(() => {
+                    setTimeLeft(t => {
+                        if (t <= 1) {
+                            clearInterval(timerRef.current);
+                            timerRef.current = null;
+                            stopListening();
+                            setStage('done');
+                            speakText("Tempo esgotado.");
+                            return 0;
+                        }
+                        return t - 1;
+                    });
+                }, 1000);
+            }, [startListening, stopListening]);
+
+            const animals = useMemo(() => matchAnimals(transcript), [transcript]);
+
+            return (
+                <div className="flex flex-col items-center space-y-5 text-center bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto">
+                    <div className="flex items-center gap-2">
+                        <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">Etapa 5</span>
+                        <h2 className="text-2xl font-bold text-gray-800">Fluência Verbal — Animais</h2>
+                    </div>
+
+                    {stage === 'intro' && (
+                        <div className="space-y-4">
+                            <p className="text-gray-600 text-lg">Você terá <strong>1 minuto</strong> para dizer o maior número possível de nomes de animais.</p>
+                            <button onClick={handleStart}
+                                className="px-10 py-4 bg-blue-600 text-white rounded-lg font-bold text-xl hover:bg-blue-700 shadow-lg transition-all active:scale-95">
+                                Começar
+                            </button>
+                        </div>
+                    )}
+
+                    {stage === 'running' && (
+                        <>
+                            <div className={`text-7xl font-mono font-bold tabular-nums ${timeLeft <= 10 ? 'text-red-600 animate-pulse' : 'text-blue-600'}`}>
+                                {String(Math.floor(timeLeft / 60)).padStart(1,'0')}:{String(timeLeft % 60).padStart(2,'0')}
+                            </div>
+                            <VoiceBox isListening={isListening} transcript={transcript} hint="Diga nomes de animais..." />
+                            <div className="text-sm text-gray-500">Animais reconhecidos: <strong className="text-blue-700">{animals.count}</strong></div>
+                        </>
+                    )}
+
+                    {stage === 'done' && (
+                        <>
+                            <div className="text-5xl font-mono font-bold text-gray-400">0:00</div>
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-4 w-full max-w-md">
+                                <p className="text-green-800 font-bold text-lg">Animais contados: {animals.count}</p>
+                                {animals.found.length > 0 && (
+                                    <p className="text-green-700 text-sm mt-1">{animals.found.join(', ')}</p>
+                                )}
+                            </div>
+                            <div className="bg-gray-50 border rounded-lg p-3 w-full max-w-md text-left">
+                                <p className="text-xs text-gray-500 font-semibold mb-1">Transcrição completa:</p>
+                                <p className="text-sm text-gray-700">{transcript || '(vazio)'}</p>
+                            </div>
+                            <NextButton onClick={onNext} label="Continuar" />
+                        </>
+                    )}
+                </div>
+            );
+        }
+
+        /* ===== COMPONENTE: TESTE DO RELÓGIO ===== */
+
+        function ClockPhase({ onFinish }) {
+            const canvasRef = useRef(null);
+            const [drawing, setDrawing] = useState(false);
+            const [ctx, setCtx] = useState(null);
+            const [step, setStep] = useState('draw'); // 'draw' | 'score'
+            const [aiResult, setAiResult] = useState(null);
+            const [selected, setSelected] = useState(null);
+            const [hasDrawn, setHasDrawn] = useState(false);
+
+            useEffect(() => {
+                speakText(PHASE_INSTRUCTIONS[PHASES.CLOCK]);
+                return () => stopSpeaking();
+            }, []);
+
+            useEffect(() => {
+                const c = canvasRef.current;
+                if (!c) return;
+                const context = c.getContext('2d');
+                // Fundo branco
+                context.fillStyle = '#ffffff';
+                context.fillRect(0, 0, c.width, c.height);
+                context.lineCap = 'round';
+                context.lineJoin = 'round';
+                context.lineWidth = 3;
+                context.strokeStyle = '#000000';
+                setCtx(context);
+            }, []);
+
+            const getPos = (e) => {
+                const rect = canvasRef.current.getBoundingClientRect();
+                if (e.touches && e.touches[0]) {
+                    return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+                }
+                return { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY };
+            };
+
+            const onDown = (e) => {
+                e.preventDefault();
+                if (!ctx) return;
+                const p = getPos(e);
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                setDrawing(true);
+                setHasDrawn(true);
+            };
+            const onMove = (e) => {
+                e.preventDefault();
+                if (!drawing || !ctx) return;
+                const p = getPos(e);
+                ctx.lineTo(p.x, p.y);
+                ctx.stroke();
+            };
+            const onUp = (e) => {
+                if (e) e.preventDefault();
+                if (ctx) ctx.closePath();
+                setDrawing(false);
+            };
+            const clearCanvas = () => {
+                if (!ctx) return;
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+                ctx.strokeStyle = '#000000';
+                setHasDrawn(false);
+            };
+
+            const analyzeDrawing = () => {
+                const result = analyzeClockDrawing(canvasRef.current);
+                setAiResult(result);
+                setSelected(result.score);
+                setStep('score');
+            };
+
+            const confirm = () => {
+                if (selected !== null) onFinish(selected);
+            };
+
+            return (
+                <div className="flex flex-col items-center space-y-4 bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto">
+                    <div className="flex items-center gap-2">
+                        <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">Etapa 6</span>
+                        <h2 className="text-2xl font-bold text-gray-800">Teste do Relógio</h2>
+                    </div>
+                    <p className="text-gray-600 text-center max-w-md">
+                        Desenhe um relógio grande com todos os números, marcando <strong>11 horas e 10 minutos</strong>.
+                    </p>
+
+                    <canvas ref={canvasRef} width={350} height={350}
+                        className="clock-canvas bg-white border-2 border-gray-300 rounded-lg shadow-inner cursor-crosshair"
+                        onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
+                        onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp} />
+
+                    {step === 'draw' ? (
+                        <div className="flex gap-3">
+                            <button onClick={clearCanvas}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-gray-200 rounded-lg font-medium text-gray-700 hover:bg-gray-300 transition-colors">
+                                <UndoIcon size={16}/> Limpar
+                            </button>
+                            <button onClick={analyzeDrawing} disabled={!hasDrawn}
+                                className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold transition-all
+                                    ${hasDrawn ? 'bg-blue-600 text-white hover:bg-blue-700 shadow' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>
+                                <SaveIcon size={16}/> Finalizar Desenho
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="w-full max-w-lg bg-gray-50 p-5 rounded-lg border-2 border-blue-200 shadow space-y-4">
+                            {aiResult && (
+                                <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-800 border border-blue-100">
+                                    <strong>Análise automática:</strong> Pontuação sugerida = <strong>{aiResult.score}</strong>/5<br/>
+                                    <span className="text-xs">{aiResult.reason}</span>
+                                </div>
+                            )}
+                            <h3 className="font-bold text-gray-700">Pontuação final (Critérios de Shulman):</h3>
+                            <p className="text-xs text-gray-500">O examinador pode ajustar a pontuação manualmente.</p>
+                            <div className="space-y-1.5">
+                                {SHULMAN_CRITERIA.map(({ score, label }) => (
+                                    <label key={score}
+                                        className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer border text-sm transition-colors
+                                            ${selected === score ? 'bg-blue-100 border-blue-400 shadow-sm' : 'border-gray-200 hover:bg-gray-100'}`}>
+                                        <input type="radio" name="shulman" checked={selected === score}
+                                            onChange={() => setSelected(score)} className="accent-blue-600 w-4 h-4"/>
+                                        <span className="font-mono font-bold w-6 text-center">{score}</span>
+                                        <span className="text-gray-700">{label}</span>
+                                    </label>
+                                ))}
+                            </div>
+                            <button onClick={confirm} disabled={selected === null}
+                                className={`w-full py-3 rounded-lg font-bold text-lg transition-all
+                                    ${selected !== null ? 'bg-green-600 text-white hover:bg-green-700 shadow' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>
+                                Confirmar e Avançar
+                            </button>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        /* ===== COMPONENTE: RECONHECIMENTO ===== */
+
+        function RecognitionPhase({ isListening, transcript, startListening, onNext }) {
+            const [instructionDone, setInstructionDone] = useState(false);
+
+            useEffect(() => {
+                speakText(PHASE_INSTRUCTIONS[PHASES.RECOGNITION]).then(() => {
+                    setInstructionDone(true);
+                    startListening();
+                });
+                return () => stopSpeaking();
+            }, []);
+
+            return (
+                <div className="flex flex-col items-center space-y-5 text-center bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto">
+                    <div className="flex items-center gap-2">
+                        <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">Etapa 8</span>
+                        <h2 className="text-2xl font-bold text-gray-800">Reconhecimento</h2>
+                    </div>
+                    <p className="text-gray-600 max-w-md">Diga quais destas figuras faziam parte do primeiro grupo.</p>
+                    <img src="./bbrc_reconhecimento.jpg" alt="20 figuras - reconhecimento BBRC"
+                         className="max-w-full h-auto max-h-[45vh] rounded-lg shadow-md border"
+                         onError={(e)=>{e.target.onerror=null; e.target.alt='Erro ao carregar bbrc_reconhecimento.jpg';}} />
+                    {instructionDone && (
+                        <VoiceBox isListening={isListening} transcript={transcript} hint="Diga o nome das figuras que reconhece..." />
+                    )}
+                    <NextButton onClick={onNext} label="Ver Resultados" />
+                </div>
+            );
+        }
+
+        /* ===== COMPONENTE: RELATÓRIO FINAL ===== */
+
+        function ReportPhase({ scores, transcripts, educationLevel, setEducationLevel }) {
+            const cutoffs = {
+                incidental: 4,
+                immediate: 6,
+                learning: 6,
+                delayed: 5,
+                recognition: 7,
+            };
+            const fluencyCutoff = educationLevel === 0 ? 8 : educationLevel === 1 ? 11 : 12;
+
+            const StatusBadge = ({ score, cutoff }) => {
+                if (cutoff === undefined) return null;
+                return score <= cutoff
+                    ? <span className="text-red-600 font-bold flex items-center gap-1 text-xs whitespace-nowrap"><AlertIcon size={14}/> Abaixo do corte</span>
+                    : <span className="text-green-600 font-bold flex items-center gap-1 text-xs whitespace-nowrap"><CheckIcon size={14}/> Normal</span>;
+            };
+
+            const ScoreRow = ({ label, score, max, cutoff, highlight }) => (
+                <li className={`flex justify-between items-center py-2 ${highlight ? 'bg-blue-50 px-3 rounded-lg -mx-1' : ''}`}>
+                    <span className={highlight ? 'font-bold text-blue-900' : ''}>{label}:</span>
+                    <div className="flex items-center gap-3">
+                        <span className={`font-mono font-bold ${highlight ? 'text-lg' : ''}`}>{score}/{max}</span>
+                        <StatusBadge score={score} cutoff={cutoff} />
+                    </div>
+                </li>
+            );
+
+            return (
+                <div className="max-w-3xl mx-auto bg-white p-8 rounded-xl shadow-lg print:shadow-none">
+                    <div className="text-center mb-6">
+                        <BrainIcon size={36} className="mx-auto text-blue-600 mb-2"/>
+                        <h1 className="text-3xl font-bold text-blue-900 mb-1">Relatório BBRC Digital</h1>
+                        <p className="text-gray-500 text-sm">Bateria Breve de Rastreio Cognitivo — Resultados</p>
+                        <p className="text-gray-400 text-xs mt-1">Data: {new Date().toLocaleDateString('pt-BR')}</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Coluna 1: Memória de Figuras */}
+                        <div className="bg-gray-50 p-5 rounded-lg border">
+                            <h3 className="font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2">
+                                <BrainIcon size={18}/> Teste de Memória de Figuras
+                            </h3>
+                            <ul className="space-y-1 text-sm">
+                                <ScoreRow label="Nomeação" score={scores.naming} max={10} />
+                                <ScoreRow label="M. Incidental (corte ≤4)" score={scores.incidental} max={10} cutoff={cutoffs.incidental} />
+                                <ScoreRow label="M. Imediata (corte ≤6)" score={scores.immediate} max={10} cutoff={cutoffs.immediate} />
+                                <ScoreRow label="Aprendizado (corte ≤6)" score={scores.learning} max={10} cutoff={cutoffs.learning} />
+                                <ScoreRow label="M. Tardia (corte ≤5)" score={scores.delayed} max={10} cutoff={cutoffs.delayed} highlight />
+                                <ScoreRow label="Reconhecimento (corte ≤7)" score={scores.recognition} max={10} cutoff={cutoffs.recognition} />
+                            </ul>
+                        </div>
+
+                        {/* Coluna 2: Interferência */}
+                        <div className="bg-gray-50 p-5 rounded-lg border">
+                            <h3 className="font-bold text-gray-700 border-b pb-2 mb-3 flex items-center gap-2">
+                                <ClockIcon size={18}/> Testes de Interferência
+                            </h3>
+                            <div className="mb-4">
+                                <label className="block text-xs font-semibold text-gray-500 mb-1">Escolaridade do paciente:</label>
+                                <select value={educationLevel} onChange={e => setEducationLevel(Number(e.target.value))}
+                                    className="w-full p-2 border border-gray-300 rounded-lg text-sm bg-white">
+                                    <option value={0}>Analfabeto</option>
+                                    <option value={1}>1–7 anos de estudo</option>
+                                    <option value={2}>8+ anos de estudo</option>
+                                </select>
+                            </div>
+                            <ul className="space-y-3 text-sm">
+                                <li>
+                                    <div className="flex justify-between items-center">
+                                        <span>Fluência Verbal (animais):</span>
+                                        <div className="flex items-center gap-3">
+                                            <span className="font-mono font-bold text-lg">{scores.fluency}</span>
+                                            <StatusBadge score={scores.fluency} cutoff={fluencyCutoff} />
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-0.5">
+                                        Corte: ≤8 (analf.) · ≤11 (1-7a) · ≤12 (8+a)
+                                    </p>
+                                </li>
+                                <li>
+                                    <div className="flex justify-between items-center">
+                                        <span>Desenho do Relógio (Shulman):</span>
+                                        <span className="font-mono font-bold text-lg">{scores.clock}/5</span>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-0.5">Escala 0-5 (critérios de Shulman)</p>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    {/* Transcrições */}
+                    <details className="mt-6 border rounded-lg">
+                        <summary className="p-3 font-bold text-gray-600 cursor-pointer hover:bg-gray-50 text-sm">
+                            Transcrições das respostas (clique para expandir)
+                        </summary>
+                        <div className="p-4 space-y-2 text-xs text-gray-600 bg-gray-50">
+                            {Object.entries(transcripts).map(([key, val]) => (
+                                val ? (
+                                    <div key={key}>
+                                        <strong className="text-gray-700">{key}:</strong> {val}
+                                    </div>
+                                ) : null
+                            ))}
+                        </div>
+                    </details>
+
+                    {/* Nota */}
+                    <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                        <strong>Nota:</strong> Este é um instrumento de rastreio cognitivo. Resultados abaixo do ponto de corte sugerem
+                        necessidade de avaliação neuropsicológica formal. Este resultado <strong>não confirma</strong> diagnóstico.
+                    </div>
+
+                    {/* Referência */}
+                    <div className="mt-3 p-3 bg-gray-50 border rounded-lg text-xs text-gray-500">
+                        <strong>Referência:</strong> Nitrini R et al. Arq Neuropsiquiatr, 1994; Smid J et al. Dement Neuropsychol, 2022 (Consenso ABN).
+                    </div>
+
+                    <button onClick={() => window.print()}
+                        className="mt-5 w-full py-3 border-2 border-blue-600 text-blue-600 font-bold rounded-lg hover:bg-blue-50 flex items-center justify-center gap-2 no-print transition-colors">
+                        <PrintIcon size={18}/> Imprimir / Salvar PDF
+                    </button>
+                </div>
+            );
+        }
+
+        /* ===== APP PRINCIPAL ===== */
+
+        function App() {
+            const [phase, setPhase] = useState(PHASES.WELCOME);
+            const [scores, setScores] = useState({
+                naming: 0, incidental: 0, immediate: 0, learning: 0,
+                fluency: 0, clock: 0, delayed: 0, recognition: 0
+            });
+            const [transcripts, setTranscripts] = useState({});
+            const [educationLevel, setEducationLevel] = useState(2);
+
+            const speech = useSpeechRecognition();
+
+            /* --- Função para salvar transcrição e pontuar a fase atual, depois avançar --- */
+            const scoreAndAdvance = useCallback((fromPhase) => {
+                speech.stopListening();
+                stopSpeaking();
+                const text = speech.transcript;
+
+                // Salvar transcrição
+                const phaseNames = {
+                    [PHASES.NAMING]: 'Nomeação',
+                    [PHASES.INCIDENTAL]: 'Memória Incidental',
+                    [PHASES.IMMEDIATE_RECALL]: 'Memória Imediata',
+                    [PHASES.LEARNING_RECALL]: 'Aprendizado',
+                    [PHASES.FLUENCY]: 'Fluência Verbal',
+                    [PHASES.DELAYED]: 'Memória Tardia',
+                    [PHASES.RECOGNITION]: 'Reconhecimento',
+                };
+                if (phaseNames[fromPhase]) {
+                    setTranscripts(prev => ({ ...prev, [phaseNames[fromPhase]]: text }));
+                }
+
+                // Pontuar
+                switch (fromPhase) {
+                    case PHASES.NAMING:
+                        setScores(s => ({ ...s, naming: matchTargetFigures(text).count }));
+                        break;
+                    case PHASES.INCIDENTAL:
+                        setScores(s => ({ ...s, incidental: matchTargetFigures(text).count }));
+                        break;
+                    case PHASES.IMMEDIATE_RECALL:
+                        setScores(s => ({ ...s, immediate: matchTargetFigures(text).count }));
+                        break;
+                    case PHASES.LEARNING_RECALL:
+                        setScores(s => ({ ...s, learning: matchTargetFigures(text).count }));
+                        break;
+                    case PHASES.FLUENCY:
+                        setScores(s => ({ ...s, fluency: matchAnimals(text).count }));
+                        break;
+                    case PHASES.DELAYED:
+                        setScores(s => ({ ...s, delayed: matchTargetFigures(text).count }));
+                        break;
+                    case PHASES.RECOGNITION:
+                        setScores(s => ({ ...s, recognition: matchTargetFigures(text).count }));
+                        break;
+                }
+
+                // Limpar transcrição e avançar
+                speech.resetTranscript();
+                const idx = PHASE_ORDER.indexOf(fromPhase);
+                if (idx >= 0 && idx < PHASE_ORDER.length - 1) {
+                    setPhase(PHASE_ORDER[idx + 1]);
+                }
+            }, [speech]);
+
+            /* --- Handlers de avanço por fase --- */
+            const handleWelcomeStart = useCallback(() => {
+                stopSpeaking();
+                setPhase(PHASES.NAMING);
+            }, []);
+
+            const handleNamingNext = useCallback(() => scoreAndAdvance(PHASES.NAMING), [scoreAndAdvance]);
+            const handleIncidentalNext = useCallback(() => scoreAndAdvance(PHASES.INCIDENTAL), [scoreAndAdvance]);
+            const handleImmediateRecallNext = useCallback(() => scoreAndAdvance(PHASES.IMMEDIATE_RECALL), [scoreAndAdvance]);
+            const handleLearningRecallNext = useCallback(() => scoreAndAdvance(PHASES.LEARNING_RECALL), [scoreAndAdvance]);
+            const handleDelayedNext = useCallback(() => scoreAndAdvance(PHASES.DELAYED), [scoreAndAdvance]);
+            const handleRecognitionNext = useCallback(() => scoreAndAdvance(PHASES.RECOGNITION), [scoreAndAdvance]);
+
+            const handleFluencyNext = useCallback(() => {
+                // Fluência gerencia seu próprio mic; apenas pontuar e avançar
+                const text = speech.transcript;
+                setTranscripts(prev => ({ ...prev, 'Fluência Verbal': text }));
+                setScores(s => ({ ...s, fluency: matchAnimals(text).count }));
+                speech.resetTranscript();
+                setPhase(PHASES.CLOCK);
+            }, [speech]);
+
+            // Exposure auto-advance
+            const handleImmediateShowEnd = useCallback(() => {
+                setPhase(PHASES.IMMEDIATE_RECALL);
+            }, []);
+
+            const handleLearningShowEnd = useCallback(() => {
+                setPhase(PHASES.LEARNING_RECALL);
+            }, []);
+
+            // Clock finish
+            const handleClockFinish = useCallback((score) => {
+                setScores(s => ({ ...s, clock: score }));
+                setPhase(PHASES.DELAYED);
+            }, []);
+
+            /* --- Barra de progresso --- */
+            const currentStep = PHASE_ORDER.indexOf(phase);
+            const totalSteps = PHASE_ORDER.length - 1; // excluindo report
+            const progress = phase === PHASES.REPORT ? 100 : Math.round((currentStep / totalSteps) * 100);
+
+            /* --- Labels para o header --- */
+            const phaseLabels = {
+                [PHASES.WELCOME]: 'Boas-vindas',
+                [PHASES.NAMING]: '1. Nomeação',
+                [PHASES.INCIDENTAL]: '2. Memória Incidental',
+                [PHASES.IMMEDIATE_SHOW]: '3. Memória Imediata',
+                [PHASES.IMMEDIATE_RECALL]: '3. Memória Imediata',
+                [PHASES.LEARNING_SHOW]: '4. Aprendizado',
+                [PHASES.LEARNING_RECALL]: '4. Aprendizado',
+                [PHASES.FLUENCY]: '5. Fluência Verbal',
+                [PHASES.CLOCK]: '6. Teste do Relógio',
+                [PHASES.DELAYED]: '7. Memória Tardia',
+                [PHASES.RECOGNITION]: '8. Reconhecimento',
+                [PHASES.REPORT]: 'Relatório'
+            };
+
+            return (
+                <div className="min-h-screen bg-slate-100 pb-16 font-sans text-slate-900">
+                    {/* Header */}
+                    <header className="sticky top-0 z-50 bg-white shadow-sm no-print">
+                        <div className="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
+                            <h1 className="text-lg font-bold text-blue-800 flex items-center gap-2">
+                                <BrainIcon className="text-blue-600" size={22}/> BBRC Digital
+                            </h1>
+                            <div className="text-sm font-medium text-gray-600">{phaseLabels[phase] || ''}</div>
+                        </div>
+                        {/* Barra de progresso */}
+                        <div className="h-1 bg-gray-200">
+                            <div className="h-1 bg-blue-500 transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                        </div>
+                    </header>
+
+                    {/* Conteúdo */}
+                    <main className="max-w-4xl mx-auto px-4 py-6">
+
+                        {phase === PHASES.WELCOME && (
+                            <WelcomePhase onStart={handleWelcomeStart} />
+                        )}
+
+                        {phase === PHASES.NAMING && (
+                            <NamingPhase
+                                isListening={speech.isListening}
+                                transcript={speech.transcript}
+                                startListening={speech.startListening}
+                                onNext={handleNamingNext}
+                            />
+                        )}
+
+                        {phase === PHASES.INCIDENTAL && (
+                            <RecallPhase stepNumber={2} title="Memória Incidental"
+                                phaseKey={PHASES.INCIDENTAL}
+                                isListening={speech.isListening}
+                                transcript={speech.transcript}
+                                startListening={speech.startListening}
+                                onNext={handleIncidentalNext}
+                            />
+                        )}
+
+                        {phase === PHASES.IMMEDIATE_SHOW && (
+                            <ExposurePhase stepNumber={3} title="Memória Imediata — Observação"
+                                phaseKey={PHASES.IMMEDIATE_SHOW}
+                                onTimerEnd={handleImmediateShowEnd}
+                            />
+                        )}
+
+                        {phase === PHASES.IMMEDIATE_RECALL && (
+                            <RecallPhase stepNumber={3} title="Memória Imediata — Evocação"
+                                phaseKey={PHASES.IMMEDIATE_RECALL}
+                                isListening={speech.isListening}
+                                transcript={speech.transcript}
+                                startListening={speech.startListening}
+                                onNext={handleImmediateRecallNext}
+                            />
+                        )}
+
+                        {phase === PHASES.LEARNING_SHOW && (
+                            <ExposurePhase stepNumber={4} title="Aprendizado — Observação"
+                                phaseKey={PHASES.LEARNING_SHOW}
+                                onTimerEnd={handleLearningShowEnd}
+                            />
+                        )}
+
+                        {phase === PHASES.LEARNING_RECALL && (
+                            <RecallPhase stepNumber={4} title="Aprendizado — Evocação"
+                                phaseKey={PHASES.LEARNING_RECALL}
+                                isListening={speech.isListening}
+                                transcript={speech.transcript}
+                                startListening={speech.startListening}
+                                onNext={handleLearningRecallNext}
+                            />
+                        )}
+
+                        {phase === PHASES.FLUENCY && (
+                            <FluencyPhase
+                                transcript={speech.transcript}
+                                isListening={speech.isListening}
+                                startListening={speech.startListening}
+                                stopListening={speech.stopListening}
+                                onNext={handleFluencyNext}
+                            />
+                        )}
+
+                        {phase === PHASES.CLOCK && (
+                            <ClockPhase onFinish={handleClockFinish} />
+                        )}
+
+                        {phase === PHASES.DELAYED && (
+                            <RecallPhase stepNumber={7} title="Memória Tardia"
+                                phaseKey={PHASES.DELAYED}
+                                isListening={speech.isListening}
+                                transcript={speech.transcript}
+                                startListening={speech.startListening}
+                                onNext={handleDelayedNext}
+                            />
+                        )}
+
+                        {phase === PHASES.RECOGNITION && (
+                            <RecognitionPhase
+                                isListening={speech.isListening}
+                                transcript={speech.transcript}
+                                startListening={speech.startListening}
+                                onNext={handleRecognitionNext}
+                            />
+                        )}
+
+                        {phase === PHASES.REPORT && (
+                            <ReportPhase
+                                scores={scores}
+                                transcripts={transcripts}
+                                educationLevel={educationLevel}
+                                setEducationLevel={setEducationLevel}
+                            />
+                        )}
+
+                    </main>
+
+                    {/* Indicador de microfone fixo */}
+                    {phase !== PHASES.WELCOME && phase !== PHASES.REPORT && (
+                        <div className="fixed bottom-4 right-4 flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-lg border text-xs no-print z-50">
+                            {speech.isListening ? (
+                                <>
+                                    <span className="relative flex h-3 w-3">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                                    </span>
+                                    <span className="text-red-600 font-bold">Microfone Ativo</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="w-3 h-3 rounded-full bg-gray-300"></span>
+                                    <span className="text-gray-400">Microfone em espera</span>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
     </script>
 </body>
 </html>
