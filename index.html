@@ -382,18 +382,86 @@
         const EyeIcon = (p) => <Icon {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></Icon>;
         const EyeOffIcon = (p) => <Icon {...p}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></Icon>;
 
+        /* ===== HOOK: PERMISSÃO DO MICROFONE ===== */
+
+        // Estados possíveis: 'checking' | 'granted' | 'denied' | 'prompt' | 'unsupported'
+        function useMicrophonePermission() {
+            const [micPermission, setMicPermission] = useState('checking');
+            const streamRef = useRef(null);
+
+            // Verificar estado inicial da permissão
+            useEffect(() => {
+                const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SR || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    setMicPermission('unsupported');
+                    return;
+                }
+
+                // Usar Permissions API se disponível para checar sem popup
+                if (navigator.permissions && navigator.permissions.query) {
+                    navigator.permissions.query({ name: 'microphone' })
+                        .then(result => {
+                            setMicPermission(result.state); // 'granted' | 'denied' | 'prompt'
+                            result.onchange = () => {
+                                setMicPermission(result.state);
+                            };
+                        })
+                        .catch(() => {
+                            // Permissions API não suporta microphone em alguns browsers
+                            setMicPermission('prompt');
+                        });
+                } else {
+                    setMicPermission('prompt');
+                }
+            }, []);
+
+            // Solicitar permissão ativamente via getUserMedia
+            const requestPermission = useCallback(async () => {
+                try {
+                    // Liberar stream anterior se houver
+                    if (streamRef.current) {
+                        streamRef.current.getTracks().forEach(t => t.stop());
+                        streamRef.current = null;
+                    }
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    streamRef.current = stream;
+                    // Parar o stream imediatamente — só precisamos da permissão
+                    stream.getTracks().forEach(t => t.stop());
+                    streamRef.current = null;
+                    setMicPermission('granted');
+                    return true;
+                } catch (err) {
+                    console.warn('Microphone permission denied:', err.name, err.message);
+                    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                        setMicPermission('denied');
+                    } else if (err.name === 'NotFoundError') {
+                        setMicPermission('unsupported');
+                    } else {
+                        setMicPermission('denied');
+                    }
+                    return false;
+                }
+            }, []);
+
+            return { micPermission, requestPermission };
+        }
+
         /* ===== HOOK: RECONHECIMENTO DE VOZ ===== */
 
         function useSpeechRecognition() {
             const recRef = useRef(null);
             const [isListening, setIsListening] = useState(false);
             const [transcript, setTranscript] = useState('');
+            const [micError, setMicError] = useState(null); // null | 'not-allowed' | 'unsupported' | 'error'
             const isActiveRef = useRef(false);
             const restartTimeoutRef = useRef(null);
 
             useEffect(() => {
                 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (!SR) return;
+                if (!SR) {
+                    setMicError('unsupported');
+                    return;
+                }
 
                 const rec = new SR();
                 rec.continuous = true;
@@ -417,8 +485,22 @@
                 };
 
                 rec.onerror = (ev) => {
-                    if (ev.error === 'aborted' || ev.error === 'no-speech') return;
+                    if (ev.error === 'aborted') return;
+                    if (ev.error === 'no-speech') return;
+                    if (ev.error === 'not-allowed') {
+                        setMicError('not-allowed');
+                        isActiveRef.current = false;
+                        setIsListening(false);
+                        return;
+                    }
+                    if (ev.error === 'service-not-allowed') {
+                        setMicError('not-allowed');
+                        isActiveRef.current = false;
+                        setIsListening(false);
+                        return;
+                    }
                     console.warn('Speech recognition error:', ev.error);
+                    setMicError('error');
                 };
 
                 rec.onend = () => {
@@ -444,12 +526,15 @@
 
             const startListening = useCallback(() => {
                 if (!recRef.current || isActiveRef.current) return;
+                setMicError(null); // Limpar erro anterior
                 isActiveRef.current = true;
                 setIsListening(true);
                 // Pequeno delay para evitar conflito com TTS
                 setTimeout(() => {
                     if (isActiveRef.current && recRef.current) {
-                        try { recRef.current.start(); } catch(e) {}
+                        try { recRef.current.start(); } catch(e) {
+                            console.warn('Failed to start recognition:', e);
+                        }
                     }
                 }, 400);
             }, []);
@@ -467,21 +552,95 @@
                 setTranscript('');
             }, []);
 
-            return { isListening, transcript, startListening, stopListening, resetTranscript, setTranscript };
+            const clearError = useCallback(() => {
+                setMicError(null);
+            }, []);
+
+            return { isListening, transcript, micError, startListening, stopListening, resetTranscript, setTranscript, clearError };
+        }
+
+        /* ===== COMPONENTE: BANNER DE ERRO DE MICROFONE ===== */
+
+        function MicPermissionBanner({ micPermission, micError, onRequestPermission }) {
+            // Mostrar se permissão negada ou erro de mic
+            const showDenied = micPermission === 'denied' || micError === 'not-allowed';
+            const showUnsupported = micPermission === 'unsupported' || micError === 'unsupported';
+
+            if (!showDenied && !showUnsupported) return null;
+
+            return (
+                <div className={`w-full max-w-2xl mx-auto mb-4 p-4 rounded-lg border-2 ${showUnsupported ? 'bg-gray-50 border-gray-300' : 'bg-red-50 border-red-300'}`}>
+                    <div className="flex items-start gap-3">
+                        <MicOffIcon size={24} className={showUnsupported ? 'text-gray-500 mt-0.5' : 'text-red-500 mt-0.5'} />
+                        <div className="flex-1">
+                            {showUnsupported ? (
+                                <>
+                                    <h4 className="font-bold text-gray-700 text-sm">Navegador Incompatível</h4>
+                                    <p className="text-gray-600 text-xs mt-1">
+                                        Seu navegador não suporta reconhecimento de voz. Use <strong>Google Chrome</strong> ou <strong>Microsoft Edge</strong> para realizar o teste.
+                                    </p>
+                                </>
+                            ) : (
+                                <>
+                                    <h4 className="font-bold text-red-700 text-sm">Microfone Bloqueado</h4>
+                                    <p className="text-red-600 text-xs mt-1">
+                                        O acesso ao microfone foi negado. O teste precisa do microfone para funcionar.
+                                    </p>
+                                    <ul className="text-red-600 text-xs mt-2 space-y-1 list-disc list-inside">
+                                        <li>Clique no ícone de cadeado ou câmera na barra de endereço do navegador</li>
+                                        <li>Altere a permissão do microfone para "Permitir"</li>
+                                        <li>Recarregue a página se necessário</li>
+                                    </ul>
+                                    <button onClick={onRequestPermission}
+                                        className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs hover:bg-red-700 transition-colors flex items-center gap-2">
+                                        <MicIcon size={14}/> Tentar Habilitar Microfone
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
         }
 
         /* ===== COMPONENTE: CAIXA DE VOZ ===== */
 
-        function VoiceBox({ isListening, transcript, hint }) {
+        function VoiceBox({ isListening, transcript, hint, micError, onRequestPermission }) {
+            const hasError = micError === 'not-allowed' || micError === 'unsupported';
+
             return (
                 <div className="w-full max-w-lg mx-auto">
-                    <div className={`p-4 rounded-lg border-2 transition-colors duration-300 ${isListening ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
+                    {/* Aviso inline se erro de mic */}
+                    {hasError && (
+                        <div className="mb-2 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+                            <MicOffIcon size={16} className="text-red-500 flex-shrink-0"/>
+                            <span className="text-red-600 text-xs flex-1">
+                                {micError === 'unsupported'
+                                    ? 'Navegador não suporta reconhecimento de voz.'
+                                    : 'Microfone bloqueado. Permita o acesso ao microfone para continuar.'}
+                            </span>
+                            {micError === 'not-allowed' && onRequestPermission && (
+                                <button onClick={onRequestPermission}
+                                    className="px-3 py-1 bg-red-600 text-white rounded text-xs font-bold hover:bg-red-700 flex-shrink-0">
+                                    Habilitar
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    <div className={`p-4 rounded-lg border-2 transition-colors duration-300 ${
+                        hasError ? 'border-red-300 bg-red-50' :
+                        isListening ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
                         <div className="flex justify-between items-center mb-2">
-                            <span className={`font-semibold text-sm ${isListening ? 'text-red-700' : 'text-gray-500'}`}>
-                                {isListening ? 'Ouvindo sua resposta...' : 'Microfone desligado'}
+                            <span className={`font-semibold text-sm ${
+                                hasError ? 'text-red-600' :
+                                isListening ? 'text-red-700' : 'text-gray-500'}`}>
+                                {hasError ? 'Microfone indisponível' :
+                                 isListening ? 'Ouvindo sua resposta...' : 'Microfone desligado'}
                             </span>
                             <div className="relative">
-                                {isListening ? (
+                                {hasError ? (
+                                    <MicOffIcon size={20} className="text-red-500"/>
+                                ) : isListening ? (
                                     <div className="relative mic-pulse">
                                         <MicIcon size={20} className="text-red-500"/>
                                     </div>
@@ -512,13 +671,61 @@
 
         /* ===== COMPONENTE: BOAS-VINDAS ===== */
 
-        function WelcomePhase({ onStart }) {
+        function WelcomePhase({ onStart, micPermission, requestPermission }) {
             const [ready, setReady] = useState(false);
+            const [requesting, setRequesting] = useState(false);
+            const [denied, setDenied] = useState(false);
 
             useEffect(() => {
                 speakText(PHASE_INSTRUCTIONS[PHASES.WELCOME]).then(() => setReady(true));
                 return () => stopSpeaking();
             }, []);
+
+            // Atualizar estado denied baseado na permissão externa
+            useEffect(() => {
+                if (micPermission === 'denied') setDenied(true);
+                else if (micPermission === 'granted') setDenied(false);
+            }, [micPermission]);
+
+            const handleStart = async () => {
+                // Se já temos permissão, ir direto
+                if (micPermission === 'granted') {
+                    onStart();
+                    return;
+                }
+
+                // Se não suportado, avisar mas deixar continuar (o teste pode funcionar parcialmente)
+                if (micPermission === 'unsupported') {
+                    if (window.confirm('Seu navegador pode não suportar reconhecimento de voz. Deseja continuar mesmo assim?')) {
+                        onStart();
+                    }
+                    return;
+                }
+
+                // Solicitar permissão
+                setRequesting(true);
+                const granted = await requestPermission();
+                setRequesting(false);
+
+                if (granted) {
+                    setDenied(false);
+                    onStart();
+                } else {
+                    setDenied(true);
+                }
+            };
+
+            const handleRetry = async () => {
+                setRequesting(true);
+                const granted = await requestPermission();
+                setRequesting(false);
+                if (granted) {
+                    setDenied(false);
+                }
+            };
+
+            const micOk = micPermission === 'granted';
+            const micPending = micPermission === 'prompt' || micPermission === 'checking';
 
             return (
                 <div className="text-center bg-white p-10 rounded-xl shadow-lg space-y-6 max-w-xl mx-auto">
@@ -528,10 +735,48 @@
                         Este teste avaliará sua memória e outras funções cognitivas.<br/>
                         O computador dará instruções por voz. Responda em <strong>voz alta</strong> e clara.
                     </p>
-                    <p className="text-sm text-gray-400">Certifique-se de estar em um local silencioso e permita acesso ao microfone.</p>
-                    <button onClick={onStart}
-                        className="bg-blue-600 text-white px-12 py-4 rounded-lg font-bold text-xl hover:bg-blue-700 shadow-lg transition-all hover:shadow-xl active:scale-95">
-                        Iniciar Teste
+
+                    {/* Status do microfone */}
+                    <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${
+                        micOk ? 'bg-green-100 text-green-700' :
+                        denied ? 'bg-red-100 text-red-700' :
+                        'bg-yellow-100 text-yellow-700'}`}>
+                        {micOk ? (
+                            <><CheckIcon size={16}/> Microfone autorizado</>
+                        ) : denied ? (
+                            <><MicOffIcon size={16}/> Microfone bloqueado</>
+                        ) : (
+                            <><MicIcon size={16}/> Microfone será solicitado</>
+                        )}
+                    </div>
+
+                    {/* Erro de microfone negado */}
+                    {denied && (
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-left">
+                            <h4 className="font-bold text-red-700 text-sm flex items-center gap-2">
+                                <AlertIcon size={16}/> Microfone Necessário
+                            </h4>
+                            <p className="text-red-600 text-xs mt-2">
+                                O teste precisa do microfone para capturar suas respostas. Sem ele, as etapas de voz não funcionarão.
+                            </p>
+                            <ul className="text-red-600 text-xs mt-2 space-y-1 list-disc list-inside">
+                                <li>Clique no ícone de cadeado na barra de endereço</li>
+                                <li>Altere a permissão do microfone para "Permitir"</li>
+                                <li>Ou clique no botão abaixo para tentar novamente</li>
+                            </ul>
+                            <button onClick={handleRetry} disabled={requesting}
+                                className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-xs hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50">
+                                <MicIcon size={14}/> {requesting ? 'Solicitando...' : 'Tentar Habilitar Microfone'}
+                            </button>
+                        </div>
+                    )}
+
+                    <p className="text-sm text-gray-400">Certifique-se de estar em um local silencioso.</p>
+
+                    <button onClick={handleStart} disabled={requesting}
+                        className={`px-12 py-4 rounded-lg font-bold text-xl shadow-lg transition-all hover:shadow-xl active:scale-95 disabled:opacity-50
+                            ${denied ? 'bg-gray-400 text-white hover:bg-gray-500' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+                        {requesting ? 'Verificando microfone...' : denied ? 'Iniciar Mesmo Assim' : 'Iniciar Teste'}
                     </button>
                 </div>
             );
@@ -539,7 +784,7 @@
 
         /* ===== COMPONENTE: NOMEAÇÃO ===== */
 
-        function NamingPhase({ isListening, transcript, startListening, onNext }) {
+        function NamingPhase({ isListening, transcript, startListening, onNext, micError, onRequestPermission }) {
             const [instructionDone, setInstructionDone] = useState(false);
 
             useEffect(() => {
@@ -561,7 +806,8 @@
                          className="max-w-full h-auto max-h-[45vh] rounded-lg shadow-md border"
                          onError={(e)=>{e.target.onerror=null; e.target.alt='Erro ao carregar bbrc_estimulos.jpg';}} />
                     {instructionDone && (
-                        <VoiceBox isListening={isListening} transcript={transcript} hint="Diga o nome de cada figura..." />
+                        <VoiceBox isListening={isListening} transcript={transcript} hint="Diga o nome de cada figura..."
+                            micError={micError} onRequestPermission={onRequestPermission} />
                     )}
                     <NextButton onClick={onNext} />
                 </div>
@@ -570,7 +816,7 @@
 
         /* ===== COMPONENTE: EVOCAÇÃO (Incidental, Imediata, Aprendizado, Tardia) ===== */
 
-        function RecallPhase({ stepNumber, title, phaseKey, isListening, transcript, startListening, onNext }) {
+        function RecallPhase({ stepNumber, title, phaseKey, isListening, transcript, startListening, onNext, micError, onRequestPermission }) {
             const [instructionDone, setInstructionDone] = useState(false);
 
             useEffect(() => {
@@ -592,7 +838,8 @@
                         <p className="text-gray-400 text-sm">As figuras estão escondidas.</p>
                     </div>
                     {instructionDone && (
-                        <VoiceBox isListening={isListening} transcript={transcript} hint="Diga os nomes das figuras que você lembra..." />
+                        <VoiceBox isListening={isListening} transcript={transcript} hint="Diga os nomes das figuras que você lembra..."
+                            micError={micError} onRequestPermission={onRequestPermission} />
                     )}
                     <NextButton onClick={onNext} />
                 </div>
@@ -655,7 +902,7 @@
 
         /* ===== COMPONENTE: FLUÊNCIA VERBAL ===== */
 
-        function FluencyPhase({ transcript, isListening, startListening, stopListening, onNext }) {
+        function FluencyPhase({ transcript, isListening, startListening, stopListening, onNext, micError, onRequestPermission }) {
             const [stage, setStage] = useState('intro'); // 'intro' | 'running' | 'done'
             const [timeLeft, setTimeLeft] = useState(60);
             const timerRef = useRef(null);
@@ -712,7 +959,8 @@
                             <div className={`text-7xl font-mono font-bold tabular-nums ${timeLeft <= 10 ? 'text-red-600 animate-pulse' : 'text-blue-600'}`}>
                                 {String(Math.floor(timeLeft / 60)).padStart(1,'0')}:{String(timeLeft % 60).padStart(2,'0')}
                             </div>
-                            <VoiceBox isListening={isListening} transcript={transcript} hint="Diga nomes de animais..." />
+                            <VoiceBox isListening={isListening} transcript={transcript} hint="Diga nomes de animais..."
+                                micError={micError} onRequestPermission={onRequestPermission} />
                             <div className="text-sm text-gray-500">Animais reconhecidos: <strong className="text-blue-700">{animals.count}</strong></div>
                         </>
                     )}
@@ -877,7 +1125,7 @@
 
         /* ===== COMPONENTE: RECONHECIMENTO ===== */
 
-        function RecognitionPhase({ isListening, transcript, startListening, onNext }) {
+        function RecognitionPhase({ isListening, transcript, startListening, onNext, micError, onRequestPermission }) {
             const [instructionDone, setInstructionDone] = useState(false);
 
             useEffect(() => {
@@ -899,7 +1147,8 @@
                          className="max-w-full h-auto max-h-[45vh] rounded-lg shadow-md border"
                          onError={(e)=>{e.target.onerror=null; e.target.alt='Erro ao carregar bbrc_reconhecimento.jpg';}} />
                     {instructionDone && (
-                        <VoiceBox isListening={isListening} transcript={transcript} hint="Diga o nome das figuras que reconhece..." />
+                        <VoiceBox isListening={isListening} transcript={transcript} hint="Diga o nome das figuras que reconhece..."
+                            micError={micError} onRequestPermission={onRequestPermission} />
                     )}
                     <NextButton onClick={onNext} label="Ver Resultados" />
                 </div>
@@ -1045,6 +1294,16 @@
             const [educationLevel, setEducationLevel] = useState(2);
 
             const speech = useSpeechRecognition();
+            const { micPermission, requestPermission } = useMicrophonePermission();
+
+            // Quando o mic é habilitado após erro, limpar o erro do speech
+            const handleRequestPermission = useCallback(async () => {
+                const granted = await requestPermission();
+                if (granted) {
+                    speech.clearError();
+                }
+                return granted;
+            }, [requestPermission, speech]);
 
             /* --- Função para salvar transcrição e pontuar a fase atual, depois avançar --- */
             const scoreAndAdvance = useCallback((fromPhase) => {
@@ -1176,8 +1435,18 @@
                     {/* Conteúdo */}
                     <main className="max-w-4xl mx-auto px-4 py-6">
 
+                        {/* Banner de erro de mic (visível em qualquer fase exceto welcome/report) */}
+                        {phase !== PHASES.WELCOME && phase !== PHASES.REPORT && (
+                            <MicPermissionBanner
+                                micPermission={micPermission}
+                                micError={speech.micError}
+                                onRequestPermission={handleRequestPermission}
+                            />
+                        )}
+
                         {phase === PHASES.WELCOME && (
-                            <WelcomePhase onStart={handleWelcomeStart} />
+                            <WelcomePhase onStart={handleWelcomeStart}
+                                micPermission={micPermission} requestPermission={requestPermission} />
                         )}
 
                         {phase === PHASES.NAMING && (
@@ -1186,6 +1455,8 @@
                                 transcript={speech.transcript}
                                 startListening={speech.startListening}
                                 onNext={handleNamingNext}
+                                micError={speech.micError}
+                                onRequestPermission={handleRequestPermission}
                             />
                         )}
 
@@ -1196,6 +1467,8 @@
                                 transcript={speech.transcript}
                                 startListening={speech.startListening}
                                 onNext={handleIncidentalNext}
+                                micError={speech.micError}
+                                onRequestPermission={handleRequestPermission}
                             />
                         )}
 
@@ -1213,6 +1486,8 @@
                                 transcript={speech.transcript}
                                 startListening={speech.startListening}
                                 onNext={handleImmediateRecallNext}
+                                micError={speech.micError}
+                                onRequestPermission={handleRequestPermission}
                             />
                         )}
 
@@ -1230,6 +1505,8 @@
                                 transcript={speech.transcript}
                                 startListening={speech.startListening}
                                 onNext={handleLearningRecallNext}
+                                micError={speech.micError}
+                                onRequestPermission={handleRequestPermission}
                             />
                         )}
 
@@ -1240,6 +1517,8 @@
                                 startListening={speech.startListening}
                                 stopListening={speech.stopListening}
                                 onNext={handleFluencyNext}
+                                micError={speech.micError}
+                                onRequestPermission={handleRequestPermission}
                             />
                         )}
 
@@ -1254,6 +1533,8 @@
                                 transcript={speech.transcript}
                                 startListening={speech.startListening}
                                 onNext={handleDelayedNext}
+                                micError={speech.micError}
+                                onRequestPermission={handleRequestPermission}
                             />
                         )}
 
@@ -1263,6 +1544,8 @@
                                 transcript={speech.transcript}
                                 startListening={speech.startListening}
                                 onNext={handleRecognitionNext}
+                                micError={speech.micError}
+                                onRequestPermission={handleRequestPermission}
                             />
                         )}
 
@@ -1279,8 +1562,20 @@
 
                     {/* Indicador de microfone fixo */}
                     {phase !== PHASES.WELCOME && phase !== PHASES.REPORT && (
-                        <div className="fixed bottom-4 right-4 flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-lg border text-xs no-print z-50">
-                            {speech.isListening ? (
+                        <div className={`fixed bottom-4 right-4 flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-lg border text-xs no-print z-50 cursor-pointer
+                            ${(speech.micError === 'not-allowed' || micPermission === 'denied') ? 'border-red-300' : ''}`}
+                            onClick={(speech.micError === 'not-allowed' || micPermission === 'denied') ? handleRequestPermission : undefined}>
+                            {(speech.micError === 'not-allowed' || micPermission === 'denied') ? (
+                                <>
+                                    <MicOffIcon size={14} className="text-red-500"/>
+                                    <span className="text-red-600 font-bold">Mic Bloqueado — Clique para habilitar</span>
+                                </>
+                            ) : speech.micError === 'unsupported' ? (
+                                <>
+                                    <MicOffIcon size={14} className="text-gray-500"/>
+                                    <span className="text-gray-500 font-bold">Navegador incompatível</span>
+                                </>
+                            ) : speech.isListening ? (
                                 <>
                                     <span className="relative flex h-3 w-3">
                                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
