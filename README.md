@@ -1,65 +1,65 @@
-# BBRC Digital
+# BBRC Digital — Autoaplicável
 
-Versao digital da **Bateria Breve de Rastreio Cognitivo (BBRC)**, instrumento de rastreio cognitivo desenvolvido por Nitrini et al. (1994) e recomendado pela Academia Brasileira de Neurologia.
+Versao digital **autoaplicavel** da **Bateria Breve de Rastreio Cognitivo (BBRC)**, instrumento de rastreio cognitivo desenvolvido por Nitrini et al. (1994) e recomendado pela Academia Brasileira de Neurologia. Funciona em **celular, tablet ou computador**, sem necessidade de examinador.
 
 ## O que e
 
-Uma aplicacao web (arquivo unico `index.html`) que aplica a BBRC completa usando:
+Uma aplicacao web (arquivo unico `index.html`) que aplica a BBRC completa usando apenas tecnologias **gratuitas e nativas do navegador**:
 
-- **Voz sintetica** para dar as instrucoes de cada etapa
-- **Reconhecimento de voz** (Web Speech API) para capturar as respostas do paciente
-- **Pontuacao automatica** comparando a transcricao com as figuras-alvo e lista de animais
-- **Canvas de desenho** para o Teste do Relogio com analise heuristica
+- **Voz sintetica** (Web Speech API / SpeechSynthesis) para todas as instrucoes
+- **Reconhecimento de voz** (Web Speech API / SpeechRecognition) para capturar as respostas
+- **Pontuacao automatica de TODAS as tarefas**, incluindo o Teste do Relogio (analise geometrica dos tracos)
+- **Auto-avanco**: o teste avanca sozinho por deteccao de silencio ou pelo comando de voz **"terminei"**
+- **Fallback por digitacao** quando o navegador nao tem reconhecimento de voz (ex.: alguns Safari/Firefox)
 
 ## Etapas do teste
 
-O fluxo segue o protocolo clinico padronizado:
-
-| Etapa | O que acontece | Pontuacao |
+| Etapa | O que acontece | Pontuacao automatica |
 |-------|---------------|-----------|
-| 1. Nomeacao | Paciente nomeia 10 figuras mostradas | 0-10 |
-| 2. Memoria Incidental | Figuras escondidas, paciente evoca de memoria | 0-10 |
+| Preparacao | Escolaridade/idade + teste guiado de som e microfone | - |
+| 1. Nomeacao | Nomear 10 figuras em voz alta | 0-10 (sinonimos + fuzzy matching) |
+| 2. Memoria Incidental | Evocar as figuras sem ver | 0-10 |
 | 3. Memoria Imediata | Exposicao 30s + evocacao | 0-10 |
 | 4. Aprendizado | Exposicao 30s + evocacao | 0-10 |
-| 5. Fluencia Verbal | Dizer nomes de animais por 1 minuto | contagem |
-| 6. Teste do Relogio | Desenhar relogio marcando 11h10 | 0-5 (Shulman) |
-| 7. Memoria Tardia | Evocar figuras apos ~5min de interferencia | 0-10 |
-| 8. Reconhecimento | Identificar 10 figuras originais entre 20 | 0-10 |
-| 9. Relatorio | Exibe resultados com pontos de corte | - |
+| 5. Fluencia Verbal | Nomes de animais em 1 minuto | contagem (variantes da mesma especie contam 1x) |
+| 6. Teste do Relogio | Desenhar relogio marcando 11h10 | 0-5 (Shulman, analise geometrica dos tracos) |
+| Pausa | Garante >= 5 min de interferencia desde o aprendizado | - |
+| 7. Memoria Tardia | Evocacao tardia | 0-10 |
+| 8. Reconhecimento | Identificar as 10 figuras originais entre 20 | 0-10 (**acertos − falsos positivos**, usando os 10 distratores da prancha) |
+| 9. Relatorio | Resultados com pontos de corte, desenho do relogio, transcricoes e exportacao | - |
+
+## Boas praticas de testagem cognitiva digital incorporadas
+
+- **Verificacao previa de hardware**: teste guiado de alto-falante e microfone antes de comecar
+- **Padronizacao de tempos**: 30s de exposicao, 60s de fluencia, ate 3 min para o relogio, janelas maximas de resposta por etapa
+- **Intervalo de interferencia minimo de 5 minutos** entre o aprendizado e a memoria tardia (pausa automatica se as tarefas de interferencia forem rapidas)
+- **Auto-avanco por silencio** com aviso visual + **lembrete falado** se o participante nao responder
+- **Tolerancia a erros do reconhecimento de voz**: normalizacao de acentos, sinonimos (ex.: jabuti = tartaruga) e distancia de Levenshtein
+- **Pontuacao corrigida do reconhecimento**: acertos menos falsos positivos (os 10 distratores da prancha sao conhecidos pelo app)
+- **Registro do processo**: transcricoes integrais, intrusoes, perseveracoes, duracao de cada etapa e imagem do desenho do relogio no relatorio (revisao clinica posterior)
+- **Tela sempre ligada** durante o teste (Wake Lock API) e aviso ao tentar fechar a pagina
+- **Acessibilidade**: botoes grandes, botao "Repetir instrucao" em todas as etapas, `aria-live` na transcricao
+- **Privacidade**: nenhum dado sai do aparelho; resultados ficam no `localStorage` e podem ser exportados em JSON
 
 ## Como funciona o codigo
 
 Tudo esta em `index.html` usando React 18 + Babel (transpilacao no browser) + Tailwind CSS (CDN).
 
-### Estrutura principal
+### Logica de pontuacao
 
-- **Constantes**: listas de figuras-alvo, sinonimos aceitos, ~200 animais, fases do teste, instrucoes de voz, criterios de Shulman
-- **`normalize()`**: remove acentos e caracteres especiais para comparacao de texto
-- **`matchTargetFigures()`**: compara a transcricao com as 10 figuras-alvo (aceita sinonimos como jabuti=tartaruga)
-- **`matchAnimals()`**: conta animais unicos na transcricao da fluencia verbal
-- **`speakText()`**: TTS via SpeechSynthesis, fala a instrucao uma unica vez por etapa
-- **`analyzeClockDrawing()`**: analisa o canvas do relogio por heuristica (circularidade, distribuicao de quadrantes, presenca de ponteiros)
-- **`useSpeechRecognition()`**: hook React que gerencia o microfone com auto-restart e cleanup
+- **`normalize()` / `levenshtein()` / `fuzzyMatch()`**: comparacao tolerante a acentos e erros de transcricao
+- **`matchTargetFigures()`**: compara a transcricao com as 10 figuras-alvo (sinonimos + fuzzy) e registra intrusoes
+- **`scoreRecognition()`**: acertos − falsos positivos (distratores: caminhao, ferro, manga, folha, chaleira, bicicleta, banana, navio, porco, paleto)
+- **`matchAnimals()`**: conta animais unicos; variantes da mesma especie (boi/vaca/touro) contam uma vez; registra perseveracoes
+- **`analyzeClockStrokes()`**: pontua o relogio (Shulman 0-5) analisando os tracos: ajuste de circulo por minimos quadrados, cobertura angular, deteccao de ponteiros (tracos retos partindo do centro, angulos de 11h10), contagem e distribuicao dos numeros pelos quadrantes
 
-### Componentes por fase
+### Fluxo autoaplicavel
 
-Cada fase do teste e um componente isolado:
-
-- `WelcomePhase` — tela inicial
-- `NamingPhase` — mostra imagem + mic
-- `RecallPhase` — figuras escondidas + mic (reutilizado para Incidental, Imediata, Aprendizado, Tardia)
-- `ExposurePhase` — mostra imagem com timer de 30s (reutilizado para Imediata e Aprendizado)
-- `FluencyPhase` — timer de 1 minuto + contagem de animais em tempo real
-- `ClockPhase` — canvas de desenho + analise + selecao de pontuacao Shulman
-- `RecognitionPhase` — mostra 20 figuras + mic
-- `ReportPhase` — resultados com pontos de corte ABN 2022
-
-### Fluxo de dados
-
-1. O `App` controla a fase atual (`phase`) e os escores (`scores`)
-2. Ao avancar de fase, `scoreAndAdvance()` para o mic, pontua a transcricao e limpa para a proxima fase
-3. Cada componente de fase fala sua instrucao no `useEffect` de montagem e ativa o mic somente apos a instrucao terminar
-4. O hook `useSpeechRecognition` e compartilhado por todas as fases
+- **`useSpeechRecognition()`**: microfone com auto-restart, transcricao parcial (interim) e correcao do bug de duplicacao (usa `resultIndex`)
+- **`useAutoAdvance()`**: avanca a etapa apos silencio (com resposta) ou tempo maximo; fala um lembrete se nao houver resposta
+- **Comando de voz "terminei"** encerra qualquer etapa de resposta falada
+- **`speakText()`**: TTS em pedacos (evita corte de falas longas no Chrome) com timeout de seguranca
+- **`useWakeLock()`**: impede que a tela apague durante o teste
 
 ## Arquivos
 
@@ -71,18 +71,26 @@ Cada fase do teste e um componente isolado:
 
 ## Como usar
 
-1. Abrir `index.html` em um navegador moderno (Chrome ou Edge recomendados)
-2. Permitir acesso ao microfone quando solicitado
-3. Seguir as instrucoes de voz em cada etapa
-4. No final, o relatorio pode ser impresso ou salvo como PDF
+1. Publicar os arquivos em um servidor **HTTPS** (ex.: GitHub Pages, gratuito) — o reconhecimento de voz exige contexto seguro
+2. Abrir no **Google Chrome** ou **Microsoft Edge** (celular, tablet ou computador)
+3. Seguir a preparacao guiada (escolaridade, teste de som e de microfone)
+4. Realizar o teste respondendo em voz alta; dizer **"terminei"** ao fim de cada resposta
+5. No final, imprimir/salvar PDF ou baixar os dados em JSON
+
+> Em navegadores sem reconhecimento de voz, o teste oferece automaticamente um campo para **digitar** as respostas.
 
 ## Requisitos
 
-- Navegador com suporte a Web Speech API (Chrome, Edge)
-- Microfone funcional
-- Alto-falantes ou fones para ouvir as instrucoes
+- Navegador com Web Speech API (Chrome ou Edge recomendados; para voz)
+- Microfone e alto-falantes/fones
+- Conexao com a internet (o reconhecimento de voz do Chrome usa servico online gratuito do navegador)
+
+## Avisos
+
+Este e um instrumento de **rastreio** com pontuacao automatizada (reconhecimento de voz e analise computacional do desenho), sujeita a imprecisoes. Resultados abaixo dos pontos de corte indicam necessidade de avaliacao presencial. O resultado **nao constitui diagnostico**.
 
 ## Referencias
 
 - Nitrini R et al. Arq Neuropsiquiatr, 1994
+- Shulman KI. Int J Geriatr Psychiatry, 2000 (Teste do Relogio)
 - Smid J et al. Dement Neuropsychol, 2022 (Consenso ABN)
