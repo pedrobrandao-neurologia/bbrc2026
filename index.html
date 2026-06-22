@@ -2010,6 +2010,7 @@
             const currentStep = PHASE_ORDER.indexOf(phase);
             const totalSteps = PHASE_ORDER.length - 1;
             const progress = phase === PHASES.REPORT ? 100 : Math.round((currentStep / totalSteps) * 100);
+            const progressBarStyle = { width: progress + '%' };
 
             return (
                 <div className="min-h-screen bg-slate-100 pb-16 font-sans text-slate-900">
@@ -2021,7 +2022,7 @@
                             <div className="text-sm font-medium text-gray-600">{PHASE_LABELS[phase] || ''}</div>
                         </div>
                         <div className="h-1 bg-gray-200">
-                            <div className="h-1 bg-blue-500 transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                            <div className="h-1 bg-blue-500 transition-all duration-500" style={progressBarStyle}></div>
                         </div>
                     </header>
 
