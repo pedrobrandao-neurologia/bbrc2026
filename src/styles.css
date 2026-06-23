@@ -1,0 +1,7 @@
+        body { background-color: #f1f5f9; margin: 0; }
+        @media print { .no-print { display: none !important; } body { background-color: white; } }
+        @keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.4); opacity: 0; } }
+        .mic-pulse::before { content:''; position:absolute; inset:-6px; border-radius:50%; border:3px solid #ef4444; animation: pulse-ring 1.2s ease-out infinite; }
+        canvas.clock-canvas { touch-action: none; }
+        button { -webkit-tap-highlight-color: transparent; }
+    

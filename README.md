@@ -61,13 +61,33 @@ Tudo esta em `index.html` usando React 18 + Babel (transpilacao no browser) + Ta
 - **`speakText()`**: TTS em pedacos (evita corte de falas longas no Chrome) com timeout de seguranca
 - **`useWakeLock()`**: impede que a tela apague durante o teste
 
-## Arquivos
+## Arquivos e build
+
+A aplicacao e **autocontida**: o `index.html` publicado **nao depende de CDNs** para
+funcionar (React e ReactDOM ficam embutidos no proprio arquivo e o JSX e pre-compilado).
+Isso evita a tela em branco quando a rede ou o dispositivo bloqueiam/atrasam recursos
+externos. Apenas o Tailwind CSS continua vindo de CDN — se ele falhar, a pagina perde
+estilo, mas continua funcionando.
 
 | Arquivo | Descricao |
 |---------|-----------|
-| `index.html` | Aplicacao completa (React + logica + UI) |
+| `index.html` | **Gerado** pelo build — app completo, React + ReactDOM + logica embutidos. Nao editar a mao. |
+| `src/app.jsx` | **Codigo-fonte** legivel (React/JSX). Edite aqui. |
+| `src/styles.css` | Estilos embutidos no `index.html` pelo build |
+| `vendor/` | React e ReactDOM (UMD de producao) embutidos no `index.html` |
+| `build.js` | Script de build (transpila o JSX e gera o `index.html` autocontido) |
+| `package.json` | Dependencias de build (`@babel/core`, `@babel/preset-react`) |
+| `.nojekyll` | Desativa o Jekyll no GitHub Pages (serve os arquivos como estao) |
 | `bbrc_estimulos.jpg` | Prancha com 10 figuras-estimulo |
 | `bbrc_reconhecimento.jpg` | Prancha com 20 figuras (10 originais + 10 distratoras) |
+
+### Como editar e reconstruir
+
+```bash
+npm install      # instala as dependencias de build (uma vez)
+# edite src/app.jsx
+npm run build    # regenera o index.html autocontido
+```
 
 ## Como usar
 
