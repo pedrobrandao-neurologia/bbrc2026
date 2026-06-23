@@ -8,7 +8,7 @@ Uma aplicacao web (arquivo unico `index.html`) que aplica a BBRC completa usando
 
 - **Voz sintetica** (Web Speech API / SpeechSynthesis) para todas as instrucoes
 - **Reconhecimento de voz** (Web Speech API / SpeechRecognition) para capturar as respostas
-- **Pontuacao automatica de TODAS as tarefas**, incluindo o Teste do Relogio (analise geometrica dos tracos)
+- **Pontuacao automatica de TODAS as tarefas**, incluindo o Teste do Relogio (analise geometrica dos tracos, **sem IA** — ver secao abaixo)
 - **Auto-avanco**: o teste avanca sozinho por deteccao de silencio ou pelo comando de voz **"terminei"**
 - **Fallback por digitacao** quando o navegador nao tem reconhecimento de voz (ex.: alguns Safari/Firefox)
 
@@ -53,12 +53,37 @@ Tudo esta em `index.html` usando React 18 + Babel (transpilacao no browser) + Ta
 - **`matchAnimals()`**: conta animais unicos; variantes da mesma especie (boi/vaca/touro) contam uma vez; registra perseveracoes
 - **`analyzeClockStrokes()`**: pontua o relogio (Shulman 0-5) analisando os tracos: ajuste de circulo por minimos quadrados, cobertura angular, deteccao de ponteiros (tracos retos partindo do centro, angulos de 11h10), contagem e distribuicao dos numeros pelos quadrantes
 
+### Como o Teste do Relogio e pontuado (SEM inteligencia artificial)
+
+> **O relogio NAO e avaliado por nenhum modelo de IA.** Nao ha chamada a API,
+> nenhuma imagem e enviada para fora do aparelho e **nenhum token e gasto**. A
+> pontuacao e 100% gratuita, local e offline — roda inteiramente no navegador.
+
+Quem pontua e a funcao `analyzeClockStrokes()` (JavaScript puro, no proprio
+dispositivo) por **analise geometrica deterministica dos tracos** desenhados. O
+`<canvas>` registra cada traco como uma sequencia de pontos `(x, y)` — ou seja,
+o app trabalha com as **coordenadas do desenho**, e nao com reconhecimento de
+imagem. O algoritmo entao:
+
+1. **Acha o mostrador** — ajusta um circulo aos tracos por minimos quadrados
+   (metodo de Kasa) e mede a cobertura angular (o contorno precisa "fechar").
+2. **Identifica os ponteiros** — tracos retos partindo do centro; mede seus
+   angulos e verifica o horario **11h10** (ponteiro das horas ~330°, dos minutos
+   ~60°, com tolerancia).
+3. **Conta e distribui os numeros** — agrupa os demais tracos e verifica se
+   ocupam os quatro quadrantes do mostrador.
+4. **Atribui a nota de Shulman (0–5)** combinando esses achados geometricos.
+
+Por ser uma heuristica geometrica (e nao visao computacional por IA), trata-se de
+um **rastreio** sujeito a imprecisao. Por isso o relatorio final guarda a imagem
+do desenho para revisao clinica posterior.
+
 ### Fluxo autoaplicavel
 
 - **`useSpeechRecognition()`**: microfone com auto-restart, transcricao parcial (interim) e correcao do bug de duplicacao (usa `resultIndex`)
 - **`useAutoAdvance()`**: avanca a etapa apos silencio (com resposta) ou tempo maximo; fala um lembrete se nao houver resposta
 - **Comando de voz "terminei"** encerra qualquer etapa de resposta falada
-- **`speakText()`**: TTS em pedacos (evita corte de falas longas no Chrome) com timeout de seguranca
+- **`speakText()`**: TTS em pedacos (evita corte de falas longas no Chrome) com timeout de seguranca, **velocidade de fala configuravel** (`SPEECH_RATE`) e protecao contra o bug do Chrome em que um `speak()` logo apos `cancel()` e descartado (atraso + `resume()` + watchdog) — isso garante que as instrucoes de cada etapa sejam sempre faladas
 - **`useWakeLock()`**: impede que a tela apague durante o teste
 
 ## Arquivos e build

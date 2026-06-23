@@ -597,6 +597,7 @@ if (window.speechSynthesis) {
   window.speechSynthesis.onvoiceschanged = loadVoices;
 }
 let speakSession = 0;
+const SPEECH_RATE = 1.1;
 function speakText(text) {
   return new Promise(resolve => {
     const synth = window.speechSynthesis;
@@ -609,6 +610,8 @@ function speakText(text) {
     const chunks = (text.match(/[^.!?]+[.!?]*/g) || [text]).map(c => c.trim()).filter(Boolean);
     let idx = 0;
     let done = false;
+    let retries = 0;
+    const MAX_RETRIES = 4;
     const resumeIv = setInterval(() => {
       try {
         synth.resume();
@@ -622,7 +625,7 @@ function speakText(text) {
       resolve();
     };
     const safety = setTimeout(finish, Math.max(6000, text.length * 130));
-    const next = () => {
+    const speakChunk = () => {
       if (session !== speakSession) {
         finish();
         return;
@@ -634,14 +637,37 @@ function speakText(text) {
       const u = new SpeechSynthesisUtterance(chunks[idx++]);
       u.lang = 'pt-BR';
       if (bestVoice) u.voice = bestVoice;
-      u.rate = 0.95;
+      u.rate = SPEECH_RATE;
       u.pitch = 1.0;
       u.volume = 1.0;
-      u.onend = next;
-      u.onerror = next;
+      let advanced = false;
+      const advance = () => {
+        if (advanced) return;
+        advanced = true;
+        speakChunk();
+      };
+      u.onend = advance;
+      u.onerror = advance;
+      try {
+        synth.resume();
+      } catch (e) {}
       synth.speak(u);
+      setTimeout(() => {
+        if (advanced || session !== speakSession) return;
+        if (!synth.speaking && !synth.pending && retries < MAX_RETRIES) {
+          retries++;
+          u.onend = null;
+          u.onerror = null;
+          advanced = true;
+          idx--;
+          try {
+            synth.resume();
+          } catch (e) {}
+          speakChunk();
+        }
+      }, 500);
     };
-    next();
+    setTimeout(speakChunk, 140);
   });
 }
 function stopSpeaking() {
@@ -1809,6 +1835,7 @@ function FluencyPhase({
   const [timeLeft, setTimeLeft] = useState(60);
   const [autoLeft, setAutoLeft] = useState(12);
   const timerRef = useRef(null);
+  const mountedRef = useRef(true);
   const {
     transcript,
     interim,
@@ -1821,6 +1848,7 @@ function FluencyPhase({
   useEffect(() => {
     speakText(PHASE_INSTRUCTIONS[PHASES.FLUENCY]);
     return () => {
+      mountedRef.current = false;
       stopSpeaking();
       if (timerRef.current) clearInterval(timerRef.current);
     };
@@ -1828,23 +1856,24 @@ function FluencyPhase({
   const handleStart = useCallback(() => {
     setStage('running');
     speakText("Atenção. Vou contar um minuto. Comece agora!").then(() => {
+      if (!mountedRef.current) return;
       playBeep(660);
       startListening();
+      timerRef.current = setInterval(() => {
+        setTimeLeft(t => {
+          if (t <= 1) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+            stopListening();
+            setStage('done');
+            playBeep(440, 0.5);
+            speakText("Tempo esgotado. Muito bem!");
+            return 0;
+          }
+          return t - 1;
+        });
+      }, 1000);
     });
-    timerRef.current = setInterval(() => {
-      setTimeLeft(t => {
-        if (t <= 1) {
-          clearInterval(timerRef.current);
-          timerRef.current = null;
-          stopListening();
-          setStage('done');
-          playBeep(440, 0.5);
-          speakText("Tempo esgotado. Muito bem!");
-          return 0;
-        }
-        return t - 1;
-      });
-    }, 1000);
   }, [startListening, stopListening]);
   useEffect(() => {
     if (stage !== 'done') return;

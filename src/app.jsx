@@ -335,8 +335,21 @@
 
         let speakSession = 0;
 
-        // Fala um texto dividido em sentenças (evita o corte de falas
-        // longas no Chrome) e com timeout de segurança caso onend não dispare
+        // Velocidade da fala sintética. 1.0 é o padrão do navegador; um valor
+        // um pouco acima deixa as instruções mais ágeis (evita que o participante
+        // se canse com a lentidão), sem prejudicar a inteligibilidade para idosos.
+        const SPEECH_RATE = 1.1;
+
+        // Fala um texto dividido em sentenças (evita o corte de falas longas no
+        // Chrome) e com timeout de segurança caso onend não dispare.
+        //
+        // Robustez contra um bug conhecido do Chrome: um speak() disparado logo
+        // após um cancel() é, às vezes, silenciosamente descartado — era o que
+        // fazia a instrução "não falar" em algumas transições de etapa (ex.: as
+        // evocações que vêm logo após a exposição das figuras). Por isso:
+        //   1) há um pequeno atraso entre cancel() e o primeiro speak();
+        //   2) chamamos resume() antes de cada speak() (o Chrome pode auto-pausar);
+        //   3) um watchdog reenvia o trecho caso nada tenha começado a falar.
         function speakText(text) {
             return new Promise((resolve) => {
                 const synth = window.speechSynthesis;
@@ -346,6 +359,8 @@
                 const chunks = (text.match(/[^.!?]+[.!?]*/g) || [text]).map(c => c.trim()).filter(Boolean);
                 let idx = 0;
                 let done = false;
+                let retries = 0;
+                const MAX_RETRIES = 4;
                 const resumeIv = setInterval(() => { try { synth.resume(); } catch (e) {} }, 8000);
                 const finish = () => {
                     if (done) return;
@@ -355,20 +370,37 @@
                     resolve();
                 };
                 const safety = setTimeout(finish, Math.max(6000, text.length * 130));
-                const next = () => {
+                const speakChunk = () => {
                     if (session !== speakSession) { finish(); return; }
                     if (idx >= chunks.length) { finish(); return; }
                     const u = new SpeechSynthesisUtterance(chunks[idx++]);
                     u.lang = 'pt-BR';
                     if (bestVoice) u.voice = bestVoice;
-                    u.rate = 0.95;
+                    u.rate = SPEECH_RATE;
                     u.pitch = 1.0;
                     u.volume = 1.0;
-                    u.onend = next;
-                    u.onerror = next;
+                    let advanced = false;
+                    const advance = () => { if (advanced) return; advanced = true; speakChunk(); };
+                    u.onend = advance;
+                    u.onerror = advance;
+                    try { synth.resume(); } catch (e) {}
                     synth.speak(u);
+                    // Watchdog: se o speak() foi engolido (nada começou a falar),
+                    // refaz este mesmo trecho — até MAX_RETRIES vezes no total.
+                    setTimeout(() => {
+                        if (advanced || session !== speakSession) return;
+                        if (!synth.speaking && !synth.pending && retries < MAX_RETRIES) {
+                            retries++;
+                            u.onend = null; u.onerror = null; // neutraliza o utterance morto
+                            advanced = true;
+                            idx--;                            // refaz o mesmo trecho
+                            try { synth.resume(); } catch (e) {}
+                            speakChunk();
+                        }
+                    }, 500);
                 };
-                next();
+                // Atraso entre cancel() e o primeiro speak() (contorna o bug do Chrome).
+                setTimeout(speakChunk, 140);
             });
         }
 
@@ -1317,11 +1349,13 @@
             const [timeLeft, setTimeLeft] = useState(60);
             const [autoLeft, setAutoLeft] = useState(12);
             const timerRef = useRef(null);
+            const mountedRef = useRef(true);
             const { transcript, interim, isListening, micError, startListening, stopListening, appendText } = speech;
 
             useEffect(() => {
                 speakText(PHASE_INSTRUCTIONS[PHASES.FLUENCY]);
                 return () => {
+                    mountedRef.current = false;
                     stopSpeaking();
                     if (timerRef.current) clearInterval(timerRef.current);
                 };
@@ -1329,24 +1363,28 @@
 
             const handleStart = useCallback(() => {
                 setStage('running');
+                // A contagem do minuto só começa DEPOIS que a instrução termina de
+                // ser falada (antes, o cronômetro corria durante "Comece agora!",
+                // tirando alguns segundos do participante).
                 speakText("Atenção. Vou contar um minuto. Comece agora!").then(() => {
+                    if (!mountedRef.current) return;
                     playBeep(660);
                     startListening();
+                    timerRef.current = setInterval(() => {
+                        setTimeLeft(t => {
+                            if (t <= 1) {
+                                clearInterval(timerRef.current);
+                                timerRef.current = null;
+                                stopListening();
+                                setStage('done');
+                                playBeep(440, 0.5);
+                                speakText("Tempo esgotado. Muito bem!");
+                                return 0;
+                            }
+                            return t - 1;
+                        });
+                    }, 1000);
                 });
-                timerRef.current = setInterval(() => {
-                    setTimeLeft(t => {
-                        if (t <= 1) {
-                            clearInterval(timerRef.current);
-                            timerRef.current = null;
-                            stopListening();
-                            setStage('done');
-                            playBeep(440, 0.5);
-                            speakText("Tempo esgotado. Muito bem!");
-                            return 0;
-                        }
-                        return t - 1;
-                    });
-                }, 1000);
             }, [startListening, stopListening]);
 
             // Auto-avanço após exibir o resultado (autoaplicação)
