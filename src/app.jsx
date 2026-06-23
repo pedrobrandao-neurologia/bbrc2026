@@ -335,8 +335,21 @@
 
         let speakSession = 0;
 
-        // Fala um texto dividido em sentenças (evita o corte de falas
-        // longas no Chrome) e com timeout de segurança caso onend não dispare
+        // Velocidade da fala sintética. 1.0 é o padrão do navegador; um valor
+        // um pouco acima deixa as instruções mais ágeis (evita que o participante
+        // se canse com a lentidão), sem prejudicar a inteligibilidade para idosos.
+        const SPEECH_RATE = 1.1;
+
+        // Fala um texto dividido em sentenças (evita o corte de falas longas no
+        // Chrome) e com timeout de segurança caso onend não dispare.
+        //
+        // Robustez contra um bug conhecido do Chrome: um speak() disparado logo
+        // após um cancel() é, às vezes, silenciosamente descartado — era o que
+        // fazia a instrução "não falar" em algumas transições de etapa (ex.: as
+        // evocações que vêm logo após a exposição das figuras). Por isso:
+        //   1) há um pequeno atraso entre cancel() e o primeiro speak();
+        //   2) chamamos resume() antes de cada speak() (o Chrome pode auto-pausar);
+        //   3) um watchdog reenvia o trecho caso nada tenha começado a falar.
         function speakText(text) {
             return new Promise((resolve) => {
                 const synth = window.speechSynthesis;
@@ -346,6 +359,8 @@
                 const chunks = (text.match(/[^.!?]+[.!?]*/g) || [text]).map(c => c.trim()).filter(Boolean);
                 let idx = 0;
                 let done = false;
+                let retries = 0;
+                const MAX_RETRIES = 4;
                 const resumeIv = setInterval(() => { try { synth.resume(); } catch (e) {} }, 8000);
                 const finish = () => {
                     if (done) return;
@@ -355,20 +370,37 @@
                     resolve();
                 };
                 const safety = setTimeout(finish, Math.max(6000, text.length * 130));
-                const next = () => {
+                const speakChunk = () => {
                     if (session !== speakSession) { finish(); return; }
                     if (idx >= chunks.length) { finish(); return; }
                     const u = new SpeechSynthesisUtterance(chunks[idx++]);
                     u.lang = 'pt-BR';
                     if (bestVoice) u.voice = bestVoice;
-                    u.rate = 0.95;
+                    u.rate = SPEECH_RATE;
                     u.pitch = 1.0;
                     u.volume = 1.0;
-                    u.onend = next;
-                    u.onerror = next;
+                    let advanced = false;
+                    const advance = () => { if (advanced) return; advanced = true; speakChunk(); };
+                    u.onend = advance;
+                    u.onerror = advance;
+                    try { synth.resume(); } catch (e) {}
                     synth.speak(u);
+                    // Watchdog: se o speak() foi engolido (nada começou a falar),
+                    // refaz este mesmo trecho — até MAX_RETRIES vezes no total.
+                    setTimeout(() => {
+                        if (advanced || session !== speakSession) return;
+                        if (!synth.speaking && !synth.pending && retries < MAX_RETRIES) {
+                            retries++;
+                            u.onend = null; u.onerror = null; // neutraliza o utterance morto
+                            advanced = true;
+                            idx--;                            // refaz o mesmo trecho
+                            try { synth.resume(); } catch (e) {}
+                            speakChunk();
+                        }
+                    }, 500);
                 };
-                next();
+                // Atraso entre cancel() e o primeiro speak() (contorna o bug do Chrome).
+                setTimeout(speakChunk, 140);
             });
         }
 
@@ -597,6 +629,130 @@
             }
 
             return { score, reason, details };
+        }
+
+        /* ===== PONTUAÇÃO DO RELÓGIO POR IA (Gemini Vision — gratuito, opcional) =====
+
+           Por padrão o relógio é pontuado pela análise geométrica acima (local,
+           offline, sem custo). Opcionalmente, se o examinador informar a SUA
+           própria chave gratuita do Google AI Studio, o desenho é enviado ao
+           Gemini (modelo de visão) para uma avaliação Shulman 0–5 mais fiel.
+
+           - A chave NUNCA é embutida no app: fica só no localStorage do aparelho.
+           - Usa o free tier do Gemini (sem cartão de crédito; sujeito às cotas
+             gratuitas) — por isso "sem gastar tokens" no sentido de custo.
+           - Em qualquer falha (sem chave, rede, cota, resposta inválida) o app
+             volta automaticamente para a pontuação geométrica local.
+        */
+        const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+
+        function getGeminiKey() {
+            try { return (localStorage.getItem('bbrc_gemini_key') || '').trim(); } catch (e) { return ''; }
+        }
+        function setGeminiKey(v) {
+            try {
+                if (v && v.trim()) localStorage.setItem('bbrc_gemini_key', v.trim());
+                else localStorage.removeItem('bbrc_gemini_key');
+            } catch (e) {}
+        }
+        function getGeminiModel() {
+            try { return (localStorage.getItem('bbrc_gemini_model') || '').trim() || DEFAULT_GEMINI_MODEL; }
+            catch (e) { return DEFAULT_GEMINI_MODEL; }
+        }
+
+        const CLOCK_AI_PROMPT = [
+            'Você é um neurologista pontuando o Teste do Relógio (Clock Drawing Test) para rastreio cognitivo.',
+            'A imagem é o desenho de um RELÓGIO feito por um participante, que foi instruído a desenhar um relógio',
+            'redondo, com todos os números, e os ponteiros marcando 11 horas e 10 minutos (11:10).',
+            '',
+            'Pontue pela escala de Shulman, mas use ESTA convenção numérica, em que 5 é o melhor e 0 o pior:',
+            '5 = Relógio perfeito (círculo, os 12 números na posição correta e dois ponteiros marcando 11:10).',
+            '4 = Erros visuoespaciais mínimos (ex.: leve desalinhamento), com o horário ainda correto.',
+            '3 = Representação inadequada das 11:10, sem alteração visuoespacial maior.',
+            '2 = Erro visuoespacial moderado (vários números faltando ou mal distribuídos).',
+            '1 = Grande desorganização visuoespacial (números/ponteiros irreconhecíveis).',
+            '0 = Incapacidade de representar um relógio (rabiscos ou ausência de relógio).',
+            '',
+            'Considere: existe um círculo? Há 12 números e estão bem posicionados? Há dois ponteiros?',
+            'Os ponteiros marcam 11:10 (ponteiro das horas perto do 11, o dos minutos perto do 2)?',
+            'Responda SOMENTE em JSON, sem texto extra: {"score": <inteiro de 0 a 5>, "reason": "<justificativa curta em português>"}'
+        ].join('\n');
+
+        // Uma única chamada ao Gemini para um modelo específico.
+        async function callGeminiClock(dataUrl, apiKey, model) {
+            const comma = dataUrl.indexOf(',');
+            const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+            const mime = (dataUrl.match(/^data:([^;]+);/) || [])[1] || 'image/png';
+            const url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+                encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey);
+            const body = {
+                contents: [{
+                    parts: [
+                        { text: CLOCK_AI_PROMPT },
+                        { inline_data: { mime_type: mime, data: base64 } }
+                    ]
+                }],
+                generationConfig: {
+                    temperature: 0,
+                    response_mime_type: 'application/json',
+                    response_schema: {
+                        type: 'OBJECT',
+                        properties: { score: { type: 'INTEGER' }, reason: { type: 'STRING' } },
+                        required: ['score', 'reason']
+                    }
+                }
+            };
+            const ctrl = new AbortController();
+            const to = setTimeout(() => ctrl.abort(), 20000);
+            let resp;
+            try {
+                resp = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                    signal: ctrl.signal
+                });
+            } catch (e) {
+                clearTimeout(to);
+                const err = new Error('rede indisponível'); err.fatal = true; throw err;
+            }
+            clearTimeout(to);
+            if (!resp.ok) {
+                let msg = 'HTTP ' + resp.status;
+                try { const j = await resp.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch (e) {}
+                const err = new Error(msg);
+                // Auth/cota não melhoram trocando de modelo: erro "fatal" (não tenta outro).
+                err.fatal = (resp.status === 401 || resp.status === 403 || resp.status === 429);
+                throw err;
+            }
+            const data = await resp.json();
+            const parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
+            const text = parts.map(p => (p && p.text) || '').join('').trim();
+            if (!text) { const err = new Error('resposta vazia da IA'); err.fatal = false; throw err; }
+            let parsed;
+            try { parsed = JSON.parse(text); }
+            catch (e) {
+                const m = text.match(/\{[\s\S]*\}/);
+                if (!m) { const err = new Error('resposta da IA não é JSON'); err.fatal = false; throw err; }
+                parsed = JSON.parse(m[0]);
+            }
+            let score = Math.round(Number(parsed.score));
+            if (!isFinite(score)) { const err = new Error('score inválido da IA'); err.fatal = false; throw err; }
+            score = Math.max(0, Math.min(5, score));
+            return { score, reason: String(parsed.reason || '').trim(), model };
+        }
+
+        // Tenta o modelo preferido e, se ele não existir/for inválido, alguns
+        // outros modelos gratuitos de visão antes de desistir.
+        async function scoreClockWithAI(dataUrl, apiKey) {
+            if (!dataUrl || !apiKey) throw new Error('sem imagem ou chave');
+            const models = [...new Set([getGeminiModel(), 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'])];
+            let lastErr;
+            for (const model of models) {
+                try { return await callGeminiClock(dataUrl, apiKey, model); }
+                catch (e) { lastErr = e; if (e && e.fatal) break; }
+            }
+            throw lastErr || new Error('falha na IA');
         }
 
         /* ===== ÍCONES SVG ===== */
@@ -993,6 +1149,13 @@
             const micUnsupported = micPermission === 'unsupported' || speech.micError === 'unsupported';
             const micCaptured = speech.transcript.trim().length > 0;
 
+            // Configuração opcional da pontuação do relógio por IA (chave do examinador)
+            const [aiKeyInput, setAiKeyInput] = useState('');
+            const [aiConfigured, setAiConfigured] = useState(false);
+            useEffect(() => { const k = getGeminiKey(); setAiKeyInput(k); setAiConfigured(!!k); }, []);
+            const saveAiKey = () => { setGeminiKey(aiKeyInput); setAiConfigured(!!aiKeyInput.trim()); };
+            const clearAiKey = () => { setGeminiKey(''); setAiKeyInput(''); setAiConfigured(false); };
+
             useEffect(() => {
                 speakText(PHASE_INSTRUCTIONS[PHASES.WELCOME]);
                 return () => stopSpeaking();
@@ -1050,6 +1213,48 @@
                                 className="px-12 py-4 bg-blue-600 text-white rounded-xl font-bold text-xl shadow-lg hover:bg-blue-700 transition-all active:scale-95">
                                 Preparar Teste
                             </button>
+
+                            <details className="text-left max-w-md mx-auto mt-2 border rounded-lg bg-gray-50">
+                                <summary className="p-3 text-sm font-semibold text-gray-600 cursor-pointer hover:bg-gray-100 flex items-center gap-2">
+                                    <BrainIcon size={16} className="text-blue-500 flex-shrink-0"/>
+                                    <span>Pontuação do relógio por IA (opcional)</span>
+                                    {aiConfigured && <span className="ml-auto text-xs text-green-600 font-bold">ativada</span>}
+                                </summary>
+                                <div className="p-3 pt-0 space-y-2">
+                                    <p className="text-xs text-gray-500 leading-relaxed">
+                                        Por padrão, o relógio é pontuado por <strong>análise geométrica</strong> no próprio
+                                        aparelho (gratuita, offline). Opcionalmente, você pode usar uma <strong>IA de visão
+                                        (Google Gemini)</strong> para uma avaliação mais fiel. É preciso uma <strong>chave
+                                        gratuita</strong> do Google AI Studio, que fica salva <strong>só neste aparelho</strong>.
+                                        Ao ativar, <strong>a imagem do relógio é enviada ao Google</strong> para pontuação; em
+                                        caso de falha, o app volta sozinho para a análise local.
+                                    </p>
+                                    <input type="password" value={aiKeyInput}
+                                        onChange={e => { setAiKeyInput(e.target.value); setAiConfigured(false); }}
+                                        placeholder="Cole aqui sua chave do Google AI Studio"
+                                        className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+                                        autoComplete="off" autoCorrect="off" spellCheck="false" />
+                                    <div className="flex gap-2 flex-wrap items-center">
+                                        <button onClick={saveAiKey} disabled={!aiKeyInput.trim()}
+                                            className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-xs hover:bg-blue-700 disabled:opacity-50">
+                                            Salvar chave
+                                        </button>
+                                        {(aiConfigured || aiKeyInput) && (
+                                            <button onClick={clearAiKey}
+                                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-bold text-xs hover:bg-gray-300">
+                                                Remover
+                                            </button>
+                                        )}
+                                        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer"
+                                            className="text-xs text-blue-700 underline">Obter chave gratuita</a>
+                                    </div>
+                                    {aiConfigured && (
+                                        <p className="text-xs text-green-600">
+                                            ✓ Chave salva. O relógio será pontuado por IA (com retorno automático à análise local em caso de falha).
+                                        </p>
+                                    )}
+                                </div>
+                            </details>
                         </>
                     )}
 
@@ -1317,11 +1522,13 @@
             const [timeLeft, setTimeLeft] = useState(60);
             const [autoLeft, setAutoLeft] = useState(12);
             const timerRef = useRef(null);
+            const mountedRef = useRef(true);
             const { transcript, interim, isListening, micError, startListening, stopListening, appendText } = speech;
 
             useEffect(() => {
                 speakText(PHASE_INSTRUCTIONS[PHASES.FLUENCY]);
                 return () => {
+                    mountedRef.current = false;
                     stopSpeaking();
                     if (timerRef.current) clearInterval(timerRef.current);
                 };
@@ -1329,24 +1536,28 @@
 
             const handleStart = useCallback(() => {
                 setStage('running');
+                // A contagem do minuto só começa DEPOIS que a instrução termina de
+                // ser falada (antes, o cronômetro corria durante "Comece agora!",
+                // tirando alguns segundos do participante).
                 speakText("Atenção. Vou contar um minuto. Comece agora!").then(() => {
+                    if (!mountedRef.current) return;
                     playBeep(660);
                     startListening();
+                    timerRef.current = setInterval(() => {
+                        setTimeLeft(t => {
+                            if (t <= 1) {
+                                clearInterval(timerRef.current);
+                                timerRef.current = null;
+                                stopListening();
+                                setStage('done');
+                                playBeep(440, 0.5);
+                                speakText("Tempo esgotado. Muito bem!");
+                                return 0;
+                            }
+                            return t - 1;
+                        });
+                    }, 1000);
                 });
-                timerRef.current = setInterval(() => {
-                    setTimeLeft(t => {
-                        if (t <= 1) {
-                            clearInterval(timerRef.current);
-                            timerRef.current = null;
-                            stopListening();
-                            setStage('done');
-                            playBeep(440, 0.5);
-                            speakText("Tempo esgotado. Muito bem!");
-                            return 0;
-                        }
-                        return t - 1;
-                    });
-                }, 1000);
             }, [startListening, stopListening]);
 
             // Auto-avanço após exibir o resultado (autoaplicação)
@@ -1421,18 +1632,24 @@
             const currentStrokeRef = useRef(null);
             const sizeRef = useRef(350);
             const finishedRef = useRef(false);
+            const mountedRef = useRef(true);
             const [instructionDone, setInstructionDone] = useState(false);
             const [hasDrawn, setHasDrawn] = useState(false);
             const [strokeCount, setStrokeCount] = useState(0);
             const [timeLeft, setTimeLeft] = useState(CLOCK_MAX_SECONDS);
             const [result, setResult] = useState(null);
             const [autoLeft, setAutoLeft] = useState(8);
+            // Estado da pontuação por IA: 'idle' | 'off' | 'loading' | 'done' | 'error'
+            const [aiState, setAiState] = useState('idle');
+            const [aiError, setAiError] = useState('');
 
             useEffect(() => {
                 let cancelled = false;
                 speakText(PHASE_INSTRUCTIONS[PHASES.CLOCK]).then(() => { if (!cancelled) setInstructionDone(true); });
                 return () => { cancelled = true; stopSpeaking(); };
             }, []);
+
+            useEffect(() => () => { mountedRef.current = false; }, []);
 
             // Canvas responsivo com suporte a telas de alta densidade
             useEffect(() => {
@@ -1525,11 +1742,29 @@
                 if (finishedRef.current) return;
                 finishedRef.current = true;
                 onPointerUp();
-                const analysis = analyzeClockStrokes(strokesRef.current, sizeRef.current);
+                const geometric = analyzeClockStrokes(strokesRef.current, sizeRef.current);
                 const image = canvasRef.current ? canvasRef.current.toDataURL('image/png') : null;
-                const detail = { ...analysis, image, strokes: strokesRef.current.length };
-                setResult(detail);
+                // Pontuação geométrica imediata (sempre disponível, é a base/fallback).
+                setResult({
+                    ...geometric, image, strokes: strokesRef.current.length,
+                    method: 'geometric',
+                    geometricScore: geometric.score, geometricReason: geometric.reason
+                });
                 speakText("Desenho registrado. Muito bem.");
+
+                // Se o examinador configurou uma chave, refina a nota com a IA.
+                const key = getGeminiKey();
+                if (!key || !image) { setAiState('off'); return; }
+                setAiState('loading');
+                scoreClockWithAI(image, key).then(ai => {
+                    if (!mountedRef.current) return;
+                    setResult(prev => ({ ...prev, score: ai.score, reason: ai.reason, method: 'ai', aiModel: ai.model }));
+                    setAiState('done');
+                }).catch(err => {
+                    if (!mountedRef.current) return;
+                    setAiError(err && err.message ? String(err.message) : 'falha');
+                    setAiState('error'); // mantém a pontuação geométrica já exibida
+                });
             }, []);
 
             // Tempo máximo de desenho (padronização)
@@ -1548,9 +1783,9 @@
                 return () => clearInterval(iv);
             }, [instructionDone, result, finishDrawing]);
 
-            // Auto-avanço após mostrar o resultado
+            // Auto-avanço após mostrar o resultado (aguarda a IA, se estiver analisando)
             useEffect(() => {
-                if (!result) return;
+                if (!result || aiState === 'loading') return;
                 const iv = setInterval(() => {
                     setAutoLeft(s => {
                         if (s <= 1) { clearInterval(iv); onFinish(result); return 0; }
@@ -1558,7 +1793,7 @@
                     });
                 }, 1000);
                 return () => clearInterval(iv);
-            }, [result]);
+            }, [result, aiState]);
 
             const repeatInstruction = () => speakText(PHASE_INSTRUCTIONS[PHASES.CLOCK]);
 
@@ -1602,11 +1837,27 @@
                             <p className="text-blue-900 font-bold flex items-center gap-2 justify-center">
                                 <CheckIcon size={18}/> Desenho registrado
                             </p>
-                            <p className="text-xs text-blue-700">
-                                A pontuação é calculada automaticamente e revisada no relatório final.
-                            </p>
-                            <p className="text-sm text-gray-400">Avançando automaticamente em {autoLeft}s...</p>
-                            <NextButton onClick={() => onFinish(result)} label="Continuar" />
+                            {aiState === 'loading' ? (
+                                <p className="text-sm text-blue-700 flex items-center gap-2 justify-center" aria-live="polite">
+                                    <span className="inline-block w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin"></span>
+                                    Analisando o relógio com inteligência artificial...
+                                </p>
+                            ) : (
+                                <>
+                                    <p className="text-xs text-blue-700">
+                                        {aiState === 'done'
+                                            ? 'Pontuado por IA (Gemini). Revisão no relatório final.'
+                                            : aiState === 'error'
+                                            ? 'IA indisponível — usando a análise geométrica local.'
+                                            : 'A pontuação é calculada automaticamente e revisada no relatório final.'}
+                                    </p>
+                                    {aiState === 'error' && aiError && (
+                                        <p className="text-[11px] text-gray-400">Motivo: {aiError}</p>
+                                    )}
+                                    <p className="text-sm text-gray-400">Avançando automaticamente em {autoLeft}s...</p>
+                                    <NextButton onClick={() => onFinish(result)} label="Continuar" />
+                                </>
+                            )}
                         </div>
                     )}
                 </div>
@@ -1755,13 +2006,28 @@
                                 </li>
                                 <li>
                                     <div className="flex justify-between items-center">
-                                        <span>Desenho do Relógio (Shulman):</span>
+                                        <span className="flex items-center gap-1.5">
+                                            Desenho do Relógio (Shulman):
+                                            {clock.method === 'ai' && (
+                                                <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">IA</span>
+                                            )}
+                                        </span>
                                         <span className="font-mono font-bold text-lg">{s('clock')}/5</span>
                                     </div>
                                     <p className="text-xs text-gray-400 mt-0.5">
                                         {SHULMAN_CRITERIA.find(c => c.score === s('clock'))?.label}
                                     </p>
-                                    {clock.reason && <p className="text-xs text-gray-400 mt-0.5">Análise automática: {clock.reason}</p>}
+                                    {clock.reason && (
+                                        <p className="text-xs text-gray-400 mt-0.5">
+                                            {clock.method === 'ai'
+                                                ? `Avaliação por IA (${clock.aiModel || 'Gemini'}): `
+                                                : 'Análise geométrica: '}
+                                            {clock.reason}
+                                        </p>
+                                    )}
+                                    {clock.method === 'ai' && typeof clock.geometricScore === 'number' && clock.geometricScore !== s('clock') && (
+                                        <p className="text-[11px] text-gray-300 mt-0.5">Análise geométrica local sugeria: {clock.geometricScore}/5</p>
+                                    )}
                                 </li>
                             </ul>
                             {clock.image && (
